@@ -182,3 +182,131 @@ def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
         plot_guide_cutoff(adata, f, t, ax=ax[i], **kwargs)
 
     fig.tight_layout()
+
+
+########################################################################################################################
+
+def filter_adata(adata, obs_filters=None, var_filters=None):
+    
+    if obs_filters is not None:
+        for f in obs_filters:
+            adata = adata[adata.obs.query(f).index, :]
+        
+    if var_filters is not None:
+        for f in var_filters:
+            adata = adata[:, adata.var.query(f).index]
+
+    return adata
+
+########################################################################################################################
+########################################################################################################################
+############# PSEUDO BULK and ZSCORE FUNCTIONS #########################################################################
+########################################################################################################################
+########################################################################################################################
+
+def zscore(adata, ref_col='perturbation',ref_val='NTC|NTC', scale_factor = None,):
+    
+    ##check if csr matrix
+    if isinstance(adata.X, np.ndarray):
+        arr = adata.X
+    else:
+        arr = adata.X.toarray()
+
+    total_counts = arr.sum(axis=1)
+    if scale_factor is None:
+
+        median_count = np.median(total_counts)
+    else: 
+        median_count = scale_factor
+
+    scaling_factors = median_count / total_counts
+    scaling_factors = scaling_factors[:, np.newaxis] #reshape to be a column vector
+    arr = arr * scaling_factors
+    ref_inds = np.where(adata.obs[ref_col] == ref_val)[0]
+
+    #exit if not ref_inds
+    if len(ref_inds) == 0:
+        
+        raise ValueError(f"ref_col '{ref_col}' and ref_val '{ref_val}' yielded no results")
+
+    mean = arr[ref_inds,].mean(axis=0)
+    stdev = arr[ref_inds,].std(axis=0)
+    # stdev = np.std(adata[ref_inds,:].X, axis=0)
+    return np.array(np.divide((arr - mean), stdev))
+
+def zscore_cov(
+        adata, 
+        covariates=None,
+        **kwargs):
+    
+    #get median
+
+    #get mapping of index val to row val
+    # Create a dictionary mapping index to row number
+    index_to_row = {index: row for row, index in enumerate(adata.obs.index)}
+    normalized_array = np.empty_like(adata.X.toarray())
+    print(normalized_array.shape)
+
+    #first split the adata into groups based on covariates
+    if covariates is not None:
+        #iterate on each groupby for anndata and apply pseudobulk 
+        g = adata.obs.groupby(covariates)
+        meta = pd.DataFrame(g.groups.keys(), columns=covariates)
+        print(f"Splitting into {len(meta)} groups based on covariates: {covariates}")
+
+        mapping = g.groups.items()
+        for key, inds in mapping:
+            print(key)
+            rows = [index_to_row[index] for index in inds]
+            normalized_array[rows,] = zscore(adata[inds,], **kwargs)
+        # arr = np.vstack([zscore(adata[inds,], **kwargs) for key, inds in mapping])
+
+        ##append all the inds together: 
+        # inds = [inds for key, inds in mapping]
+
+        return normalized_array
+
+        # out = {key: }
+
+
+        # for key, inds in mapping:
+        #     adata[inds,].X = out[key]
+
+        return adata
+
+    else:
+        #if covariates are none then we just apply pseudobulk to the whole matrix (ie single sample)
+        return zscore(adata, **kwargs)
+
+
+def pseudobulk(adata, groupby, **kwargs):
+    adpb = ADPBulk(adata, groupby=groupby, **kwargs)
+    pseudobulk_matrix = adpb.fit_transform()
+    sample_meta = adpb.get_meta().set_index('SampleName')
+    adata = sc.AnnData(pseudobulk_matrix, obs=sample_meta, var=adata.var)
+
+    return adata
+
+
+########################################################################################################################
+########################################################################################################################
+############# KNOCKDOWN FUNCTIONS ######################################################################################
+########################################################################################################################
+########################################################################################################################
+
+def plot_kd(adata, gene):
+    gene_vals = adata[:,gene].X.toarray().flatten()
+    ##plot AR for AR KD vs NTC|NTC
+    gene_inds = (adata.obs['perturbation'].str.contains(gene + '\|')) | (adata.obs['perturbation'].str.contains('\|' + gene))
+    NTC_inds = adata.obs['perturbation'] == 'NTC|NTC'
+    print(f"Number of obs in NTC|NTC: {np.sum(NTC_inds)}")
+    print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
+
+
+    plt.hist(gene_vals[NTC_inds], label='NTC', alpha=0.5, bins=30)
+    plt.hist(gene_vals[gene_inds], label=gene + ' KD', alpha=0.5, bins=30)
+    #add mean line for each group
+    plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
+    plt.axvline(gene_vals[gene_inds].mean(), color='orange')
+    plt.legend()
+    plt.show()
