@@ -6,6 +6,7 @@ import math
 import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
+from adpbulk import ADPBulk
 
 
 def parse_h5(
@@ -280,6 +281,13 @@ def zscore_cov(
 
 
 def pseudobulk(adata, groupby, **kwargs):
+    """
+    Function to apply pseudobulk to anndata object
+    Args:
+        adata (ad.AnnData): AnnData object with guide calls in adata.obs['guide']
+        groupby (str): column in adata.obs to group by
+        **kwargs: arguments to pass to pseudobulk function
+    """
     adpb = ADPBulk(adata, groupby=groupby, **kwargs)
     pseudobulk_matrix = adpb.fit_transform()
     sample_meta = adpb.get_meta().set_index('SampleName')
