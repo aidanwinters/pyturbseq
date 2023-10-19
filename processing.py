@@ -47,3 +47,13 @@ def generate_perturbation_matrix(
         return csr_matrix(perturbation_matrix)
     else: 
         return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
+
+
+
+def split_sort_trim(label, delim='|', delim2='_'):
+    #if not string then print
+    if type(label) != str:
+        return None
+    vals = [x.split(delim2)[0] for x in label.split(delim)]
+    vals.sort()
+    return delim.join(vals)
