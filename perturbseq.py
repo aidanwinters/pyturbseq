@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from adpbulk import ADPBulk
 
 
+import anndata as ad
+
 def parse_h5(
     CR_out,
     pattern=r"opl(?P<opl>\d+).*lane(?P<lane>\d+)",
@@ -320,6 +322,46 @@ def plot_kd(adata, gene):
     plt.show()
 
 
+def percent_knocked_down_per_cell(adata, perturbation_column, reference_label):
+    """
+    Compute the "percent knocked down" for each cell against a reference.
+    
+    Parameters:
+    - adata: anndata.AnnData object containing expression data
+    - perturbation_column: column in adata.obs indicating the perturbation/knockdown
+    - reference_label: label of the reference population in perturbation_column
+    
+    Returns:
+    - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
+    """
+    
+    # Get mean expression values for reference population
+    reference_means = adata[adata.obs[perturbation_column] == reference_label, :].X.toarray().mean(axis=0)
+    
+    # Placeholder for percent knocked down values
+    percent_kd_values = []
+    reference_mean_values = []
+    
+    # Loop through cells
+    for cell, perturb in zip(adata.X.toarray(), adata.obs[perturbation_column]):
+        if perturb == reference_label or perturb not in adata.var_names:
+            percent_kd_values.append(None)
+            reference_mean_values.append(None)
+            continue
+
+        # print('here')
+        gene_idx = adata.var_names.get_loc(perturb)
+        
+        percent_value = (1 - ((cell[gene_idx]+1) / (reference_means[gene_idx] + 1))) * 100
+        percent_kd_values.append(percent_value)
+        reference_mean_values.append(reference_means[gene_idx])
+    
+    # Add to adata
+    adata.obs['percent_kd'] = percent_kd_values
+    adata.obs['reference_mean'] = reference_mean_values
+    
+    return adata
+
 
 
 #####################################################################################################################
@@ -352,3 +394,6 @@ def hamming_dist_matrix(ref):
         dists[j, i] = d
 
     return dists
+
+
+
