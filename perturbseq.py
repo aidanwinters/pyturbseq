@@ -187,6 +187,140 @@ def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
     fig.tight_layout()
 
 
+### FEATURE CALLING FUNCTIONS
+
+
+import numpy as np
+import pandas as pd
+from sklearn.mixture import GaussianMixture
+
+def CLR_transform(df):
+    '''
+    Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
+    
+    Args:
+    - df (pd.DataFrame): The input data frame containing features to be transformed.
+    
+    Returns:
+    - pd.DataFrame: A data frame with the CLR-transformed features.
+    
+    Notes:
+    - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
+    - The function first applies the log transform (after adding 1 to handle zeros). 
+      Then, for each feature, it subtracts the mean value of that feature, thus "centering" the log-transformed values.
+    '''
+    logn1 = np.log(df + 1)
+    T_clr = logn1.sub(logn1.mean(axis=0), axis=1)
+    return T_clr
+
+def get_gm(col, n_components=2):
+    '''
+    Fits a Gaussian Mixture model to a given feature/column and assigns cluster labels.
+    
+    Args:
+    - col (np.array): The input column/feature to cluster.
+    - n_components (int): Number of mixture components to use (default=2).
+    
+    Returns:
+    - tuple: Cluster labels assigned to each data point and the maximum probabilities of cluster membership.
+    '''
+    
+    # Reshaping column to a 2D array, required for GaussianMixture input
+    col = col.reshape(-1, 1)
+    
+    # Fitting the Gaussian Mixture model
+    gm = GaussianMixture(n_components=n_components, random_state=0).fit(col)
+    gm_assigned = gm.predict(col)
+
+    # Reorder cluster labels so that they are consistent with the order of mean values of clusters
+    mapping = {}
+    classes = set(gm_assigned)
+    class_means = [(col[gm_assigned == c].mean(), c) for c in classes]
+    ordered = sorted(class_means)
+    mapping = {x[1]: i for i, x in enumerate(ordered)}
+    gm_assigned = np.array([mapping[x] for x in gm_assigned])
+
+    max_probability = gm.predict_proba(col).max(axis=1)
+    return (gm_assigned, max_probability)
+
+def assign_hto_per_column_mixtureModel(hto_df, filter_on_prob=None):
+    '''
+    Assigns labels to each data point in the provided dataframe based on Gaussian Mixture clustering results.
+    
+    Args:
+    - hto_df (pd.DataFrame): The input data frame containing features to be clustered.
+    - filter_on_prob (float, optional): If provided, it may be used to filter results based on probability thresholds.
+    
+    Returns:
+    - tuple: A data frame summarizing cluster assignments and two arrays with cluster labels and max probabilities.
+    '''
+    
+    # Apply CLR transform to the dataframe
+    clr = CLR_transform(hto_df)
+
+    # Fit Gaussian Mixture to each column in the transformed dataframe
+    n_components = 2
+    gms = [get_gm(clr[c].values, n_components=n_components) for c in hto_df.columns]
+    gm_assigned = np.array([x[0] for x in gms]).T
+    max_probability = np.array([x[1] for x in gms]).T
+
+    # Define a helper function to determine cluster assignment based on Gaussian Mixture results
+    def assign(x, cols):
+        if sum(x) > 1:
+            return 'multiplet'
+        elif sum(x) < 1:
+            return 'unassigned'
+        else:
+            return cols[x == 1].values[0]
+
+    # Use the helper function to determine cluster assignment for each data point
+    trt = [assign(x, hto_df.columns) for x in gm_assigned]
+
+    # Create a summary dataframe
+    df = pd.DataFrame({
+        'treatment': trt,
+        'HTO_max_prob': max_probability.max(axis=1),
+        'ratio_max_prob_to_total': max_probability.max(axis=1) / max_probability.sum(axis=1),
+        'total_HTO_counts': hto_df.sum(axis=1),
+    })
+
+    return df, gm_assigned, max_probability
+
+
+def assign_hto_mixtureModel(
+    hto_df,
+    n_components=2,
+    filter_on_prob=None,
+    per_column=False,
+    ):
+
+    print(f'Fitting Gaussian Mixture Model....')
+    clr = CLR_transform(hto_df)
+
+    gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr.values)
+    gm_assigned = gm.predict(clr.values)
+
+    max_probability = gm.predict_proba(clr.values).max(axis=1)
+
+
+    ## Perform mapping by assigning the maximum CLR to each predicted class
+    mapping = {}
+    for c in set(gm_assigned):
+        mapping[c] = clr.loc[gm_assigned == c, clr.columns].mean(axis=0).idxmax()
+    
+    trt = pd.Series([mapping[x] for x in gm_assigned]) # Get treatment cal
+    if filter_on_prob is not None: 
+        print(f'\t Filtering below GM prediction probability {filter_on_prob}')
+        trt[max_probability <= filter_on_prob] =  None 
+
+    df = pd.DataFrame({
+        'total_HTO_counts': hto_df.sum(axis=1),
+        'treatment': trt.values,
+        'HTO_max_prob': max_probability
+    }, index=hto_df.index)
+    return df
+
+
 ########################################################################################################################
 
 def filter_adata(adata, obs_filters=None, var_filters=None):
@@ -304,7 +438,7 @@ def pseudobulk(adata, groupby, **kwargs):
 ########################################################################################################################
 ########################################################################################################################
 
-def plot_kd(adata, gene):
+def plot_kd(adata, gene, ):
     gene_vals = adata[:,gene].X.toarray().flatten()
     ##plot AR for AR KD vs NTC|NTC
     gene_inds = (adata.obs['perturbation'].str.contains(gene + '\|')) | (adata.obs['perturbation'].str.contains('\|' + gene))

@@ -3,6 +3,32 @@ import numpy as np
 import pandas as pd
 
 
+def filter_to_feature_type(
+    adata,
+    feature_type='Gene Expression'
+    ):
+    """
+    Updates an anndata object to only include the GEX feature type in its .X slot. 
+    Optionally adds the removed features to metadata
+    """
+    ## Subset 
+    return adata[:, adata.var['feature_types'] == feature_type]
+
+def split_by_feature_type(
+    adata,
+    # feature_type='Gene Expression'
+    ):
+    """
+    Updates an anndata object to only include the GEX feature type in its .X slot. 
+    Optionally adds the removed features to metadata
+    """
+    ## Subset 
+    out = {}
+    for ftype in adata.var['feature_types'].unique():
+        out[ftype] = adata[:, adata.var['feature_types'] == ftype]
+
+    return out
+
 #read in the feature call column, split all of them by delimiter 
 def generate_perturbation_matrix(
     adata,
