@@ -5,6 +5,8 @@ import numpy as np
 
 from statsmodels.stats.multitest import multipletests
 
+from adjustText import adjust_text
+
 def get_degs(adata, design_col, n_cpus=16, quiet=True):
     dds = DeseqDataSet(
         counts=pd.DataFrame(
@@ -27,6 +29,7 @@ def get_degs(adata, design_col, n_cpus=16, quiet=True):
         dds, contrast=contrast , n_cpus=n_cpus, quiet=quiet
     )
     stat_res.summary()
+
     return stat_res.results_df
 
 def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8):
