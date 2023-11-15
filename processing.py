@@ -74,8 +74,6 @@ def generate_perturbation_matrix(
     else: 
         return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
 
-
-
 def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print
     if type(label) != str:
@@ -83,3 +81,43 @@ def split_sort_trim(label, delim='|', delim2='_'):
     vals = [x.split(delim2)[0] for x in label.split(delim)]
     vals.sort()
     return delim.join(vals)
+
+def split_sort_paste(l, split_delim='_', paste_delim='|'):
+    
+    #if type is not series make it so
+    if type(l) != pd.Series:
+        l = pd.Series(l)
+
+    l = l.str.split(split_delim).str[0]
+    return paste_delim.join(np.sort(l.values))
+
+
+def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
+    """
+    Reorders a DataFrame based on hierarchical clustering.
+    
+    Parameters:
+    - df: The input DataFrame
+    - cluster_rows: Whether to cluster and reorder the rows
+    - cluster_cols: Whether to cluster and reorder the columns
+    - method: Linkage algorithm to use for clustering (e.g., 'average', 'single', 'complete')
+    
+    Returns:
+    - DataFrame reordered based on hierarchical clustering.
+    """
+    
+    if cluster_cols:
+        # Compute pairwise distances for columns and cluster
+        col_linkage = linkage(pdist(df.T), method=method)
+        # Extract column order from dendrogram
+        col_order = leaves_list(col_linkage)
+        df = df[df.columns[col_order]]
+    
+    if cluster_rows:
+        # Compute pairwise distances for rows and cluster
+        row_linkage = linkage(pdist(df), method=method)
+        # Extract row order from dendrogram
+        row_order = leaves_list(row_linkage)
+        df = df.iloc[row_order]
+        
+    return df
