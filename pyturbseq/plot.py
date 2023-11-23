@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from adjustText import adjust_text
+import numpy as np
 
 from . import processing as proc
 
@@ -89,3 +90,21 @@ def comparison_plot(
     
     if show:
         plt.show()
+
+def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
+    gene_vals = adata[:,gene].X.toarray().flatten()
+    ##plot AR for AR KD vs NTC|NTC
+    gene_inds = adata.obs[col] == exp_val
+    NTC_inds = adata.obs[col] == ref_val
+    print(f"Number of obs in NTC: {np.sum(NTC_inds)}")
+    print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
+
+
+    plt.hist(gene_vals[NTC_inds], label=ref_val, alpha=0.5, bins=30)
+    plt.hist(gene_vals[gene_inds], label=exp_val + ' KD', alpha=0.5, bins=30)
+    #add mean line for each group
+    plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
+    plt.axvline(gene_vals[gene_inds].mean(), color='orange')
+    plt.title(f'{exp_val} KD vs {ref_val} for gene {gene}')
+    plt.legend()
+    plt.show()
