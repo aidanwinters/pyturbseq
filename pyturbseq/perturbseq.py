@@ -438,22 +438,23 @@ def pseudobulk(adata, groupby, **kwargs):
 ########################################################################################################################
 ########################################################################################################################
 
-def plot_kd(adata, gene, ):
-    gene_vals = adata[:,gene].X.toarray().flatten()
-    ##plot AR for AR KD vs NTC|NTC
-    gene_inds = (adata.obs['perturbation'].str.contains(gene + '\|')) | (adata.obs['perturbation'].str.contains('\|' + gene))
-    NTC_inds = adata.obs['perturbation'] == 'NTC|NTC'
-    print(f"Number of obs in NTC|NTC: {np.sum(NTC_inds)}")
-    print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
+#deprecated
+# def plot_kd(adata, gene, ):
+#     gene_vals = adata[:,gene].X.toarray().flatten()
+#     ##plot AR for AR KD vs NTC|NTC
+#     gene_inds = (adata.obs['perturbation'].str.contains(gene + '\|')) | (adata.obs['perturbation'].str.contains('\|' + gene))
+#     NTC_inds = adata.obs['perturbation'] == 'NTC|NTC'
+#     print(f"Number of obs in NTC|NTC: {np.sum(NTC_inds)}")
+#     print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
 
 
-    plt.hist(gene_vals[NTC_inds], label='NTC', alpha=0.5, bins=30)
-    plt.hist(gene_vals[gene_inds], label=gene + ' KD', alpha=0.5, bins=30)
-    #add mean line for each group
-    plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
-    plt.axvline(gene_vals[gene_inds].mean(), color='orange')
-    plt.legend()
-    plt.show()
+#     plt.hist(gene_vals[NTC_inds], label='NTC', alpha=0.5, bins=30)
+#     plt.hist(gene_vals[gene_inds], label=gene + ' KD', alpha=0.5, bins=30)
+#     #add mean line for each group
+#     plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
+#     plt.axvline(gene_vals[gene_inds].mean(), color='orange')
+#     plt.legend()
+#     plt.show()
 
 
 def percent_knocked_down_per_cell(adata, perturbation_column, reference_label):
