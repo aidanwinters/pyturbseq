@@ -85,7 +85,7 @@ def get_model_fit(data, double, targets=None, plot=True, verbose=True):
 
     #how well correlated is the fit to the double perturbation
     out['fit_spearmanr'] = spearmanr(Z, doubleX)[0]
-    out['fit_pearsonr'] = spearmanr(Z, doubleX)[0]
+    out['fit_pearsonr'] = pearsonr(Z, doubleX)[0]
 
     #other distance metrics
     out['fit_cosine_dist'] = distance.cosine(Z, doubleX)

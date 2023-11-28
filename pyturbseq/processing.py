@@ -2,6 +2,8 @@ from scipy.sparse import csr_matrix
 import numpy as np
 import pandas as pd
 
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, leaves_list
 
 def filter_to_feature_type(
     adata,
@@ -37,7 +39,6 @@ def generate_perturbation_matrix(
     feature_list = None,
     sparse = True,
     ):
-    print(adata)
 
     #if there is no feature list, split all the features in the column and build one
     if feature_list is None:

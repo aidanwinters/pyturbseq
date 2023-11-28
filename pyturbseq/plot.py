@@ -3,10 +3,15 @@ import seaborn as sns
 import pandas as pd
 from adjustText import adjust_text
 import numpy as np
+import scanpy as sc
 
 from . import processing as proc
+from .interaction import get_singles, get_model_fit
 
-def plot_double_single(data, double_condition, pred=False, genes=None, **kwargs):
+
+
+
+def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs):
 
     # if data is anndata then make it df
     if type(data) == sc.AnnData:
@@ -34,7 +39,7 @@ def plot_double_single(data, double_condition, pred=False, genes=None, **kwargs)
         #add pred to sub
         m, Z = get_model_fit(subdf, double_condition, targets=gs, plot=False)
         subdf.loc[f"Predicted",gs] = Z.flatten()
-        title = f"{double_condition} \n{round(float(m['coef_a']),2)}({m['a']}) x {round(float(m['coef_b']),2)}({m['b']}) \nSpearman: {round(m['corr_fit'],2)}"
+        title = f"{double_condition} \n{round(float(m['coef_a']),2)}({m['a']}) x {round(float(m['coef_b']),2)}({m['b']}) \nSpearman: {round(m[metric],2)}"
         # ax.hlines([1], *ax.get_xlim())
     else:
         title = double_condition
