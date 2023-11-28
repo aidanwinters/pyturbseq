@@ -80,18 +80,18 @@
 #     df = pd.concat(dfs)
 #     return df
 
-
-
-
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 import pandas as pd
-import numpy as np
 from pydeseq2.dds import DeseqDataSet
 from pydeseq2.ds import DeseqStats
 from statsmodels.stats.multitest import multipletests
+import numpy as np
 
-def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
+import io
+import sys
+
+def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=False):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
 
@@ -101,11 +101,14 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
     ref_val (str, optional): Reference value for the design matrix. Defaults to None.
     n_cpus (int, optional): Number of CPUs to use for DESeq2. Defaults to 16.
     quiet (bool, optional): Flag to suppress DESeq2 output. Defaults to True.
+    verbose (bool, optional): Flag to enable verbose output. Defaults to False.
 
     Returns:
     pd.DataFrame: DataFrame containing DESeq2 results.
     """
-    # Preparing the dataset for DESeq2 analysis
+    if verbose:
+        print(f"Running DESeq2 for design column: {design_col} with reference value: {ref_val}")
+
     dds = DeseqDataSet(
         counts=pd.DataFrame(
             adata.X.toarray() if type(adata.X) is not np.ndarray else adata.X,
@@ -116,11 +119,23 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
         n_cpus=n_cpus,
         quiet=quiet,
     )
-    
+
     try:
+        # create a text trap and redirect stdout
+        if not verbose:
+                    # create a text trap and redirect stdout
+            text_trap = io.StringIO()
+            sys.stdout = text_trap
+
+        # execute function
         dds.deseq2()
+
+        if not verbose:
+            # now restore stdout function
+            sys.stdout = sys.__stdout__
+
     except Exception as e:
-        print(f"Exception: {e}")
+        print(f"Exception in DESeq2 execution: {e}")
         return pd.DataFrame()
 
     # Setting up contrast for DESeq2
@@ -131,17 +146,31 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
         alt_val = [x for x in design_vals if x != ref_val]
         if len(alt_val) > 1:
             raise ValueError(f"More than one alternative value for {design_col} in adata. This is currently not supported.")
-        contrast = [design_col, ref_val, alt_val[0]]
+        contrast = [design_col, alt_val[0], ref_val]
 
     # Running the statistical analysis
+
+    if not verbose:
+                # create a text trap and redirect stdout
+        text_trap = io.StringIO()
+        sys.stdout = text_trap
+
     stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)
     stat_res.summary()
+
+    if not verbose:
+        # now restore stdout function
+        sys.stdout = sys.__stdout__
+
     df = stat_res.results_df
     df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
 
+    if verbose:
+        print(f"DESeq2 analysis completed for {design_col}.")
+
     return df
 
-def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4):
+def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, verbose=False):
     """
     Run DESeq2 analysis in parallel for multiple conditions.
 
@@ -152,29 +181,48 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
     conditions (list, optional): List of conditions to test against the reference. Defaults to None.
     n_cpus (int, optional): Number of CPUs to use for each DESeq2 task. Defaults to 8.
     max_workers (int, optional): Maximum number of parallel tasks. Defaults to 4.
+    verbose (bool, optional): Flag to enable verbose output. Defaults to False.
 
     Returns:
     pd.DataFrame: Concatenated DataFrame containing results for all conditions.
     """
     def get_degs_subset(condition):
-        df = get_degs(
+        if verbose:
+            print(f"Processing condition: {condition}")
+        return get_degs(
             adata[adata.obs[design_col].isin([condition, reference])],
             design_col,
             ref_val=reference,
-            n_cpus=n_cpus
+            n_cpus=n_cpus,
+            verbose=verbose
         )
-        df['condition'] = condition
-        return df
 
     if conditions is None:
         conditions = list(set(adata.obs[design_col]) - {reference})
 
-    # Running DESeq2 analysis in parallel
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(get_degs_subset, condition): condition for condition in conditions}
-        dfs = []
-        for future in as_completed(futures):
-            dfs.append(future.result())
+    if verbose:
+        print(f"Starting parallel DESeq2 analysis for {len(conditions)} conditions.")
 
-    # Concatenating results from all conditions
+    dfs = []
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Mapping of futures to their respective conditions
+            future_to_condition = {executor.submit(get_degs_subset, condition): condition for condition in conditions}
+
+            # Initialize tqdm progress bar if verbose
+            progress = tqdm(as_completed(future_to_condition), total=len(conditions), desc="Processing", unit="task") if verbose else as_completed(future_to_condition)
+
+            for future in progress:
+                condition = future_to_condition[future]
+                # Collect results and append to list
+                dfs.append(future.result())
+
+    except KeyboardInterrupt:
+        print("Cancellation requested by user. Shutting down...")
+        executor.shutdown(wait=False)
+        raise
+
+    if verbose:
+        print("All conditions processed. Concatenating results...")
+
     return pd.concat(dfs, ignore_index=True)
