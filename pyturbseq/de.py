@@ -92,7 +92,7 @@ import io
 import sys
 import multiprocessing
 
-def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, quiet=True):
+def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
 
@@ -107,7 +107,7 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, quiet=True)
     Returns:
     pd.DataFrame: DataFrame containing DESeq2 results.
     """
-    if verbose:
+    if not quiet:
         print(f"Running DESeq2 for design column: {design_col} with reference value: {ref_val}")
 
     dds = DeseqDataSet(
@@ -154,17 +154,17 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, quiet=True)
 
     # Running the statistical analysis
 
-    # if not verbose:
-    #             # create a text trap and redirect stdout
-    #     text_trap = io.StringIO()
-    #     sys.stdout = text_trap
+    if quiet:
+                # create a text trap and redirect stdout
+        text_trap = io.StringIO()
+        sys.stdout = text_trap
 
     stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)
     stat_res.summary()
 
-    # if not verbose:
-    #     # now restore stdout function
-    #     sys.stdout = sys.__stdout__
+    if not quiet:
+        # now restore stdout function
+        sys.stdout = sys.__stdout__
 
     df = stat_res.results_df
     df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
