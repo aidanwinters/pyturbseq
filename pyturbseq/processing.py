@@ -75,32 +75,34 @@ def generate_perturbation_matrix(
 
     # if sparse:
     #     return csr_matrix(perturbation_matrix)
-    else: 
-        return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
+    return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
 
-def add_perturbation_matrix(adata):
+def get_perturbation_matrix(
+        adata, 
+        perturbation_col = 'feature_call',      
+        **kwargs      
+        ):
     """
     Add a perturbation matrix to an anndata object. 
+    Args:
+        adata: anndata object
+        perturbation_col: column in adata.obs that contains the perturbation information
+        feature_list: list of features to include in the perturbation matrix. If None, all features in the perturbation column will be included.
+        inplace: whether to add the perturbation matrix to the adata object or return it
+    Returns:
+        adata object with perturbation matrix in adata.layers['perturbations']
     """
 
-    adata.obsm['perturbation'] = pm.loc[guides.obs.index, :].values
-    guides.uns['perturbation_var'] = pm.columns.tolist()
-    guides
+    pm = generate_perturbation_matrix(
+            adata,
+            perturbation_col = perturbation_col,
+            **kwargs
+            )
 
-    if inplace:
-        adata.layers['perturbations'] = generate_perturbation_matrix(
-            adata,
-            perturbation_col = perturbation_col,
-            feature_list = feature_list,
-            inplace = inplace
-            )
-    else:
-        return generate_perturbation_matrix(
-            adata,
-            perturbation_col = perturbation_col,
-            feature_list = feature_list,
-            inplace = inplace
-            )
+    adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].values
+    cols = pm.columns.tolist()
+    adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
+    return adata
 
 def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print
