@@ -221,8 +221,8 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
             future_to_condition = {executor.submit(get_degs_subset, condition): condition for condition in conditions}
 
             # Initialize tqdm progress bar if verbose
-            progress = tqdm(as_completed(future_to_condition), total=len(conditions), desc="Processing", unit="task") if verbose else as_completed(future_to_condition)
-
+            progress = tqdm(as_completed(future_to_condition), total=len(conditions), desc="Processing", unit="task")
+            
             for future in progress:
                 condition = future_to_condition[future]
                 # Collect results and append to list
