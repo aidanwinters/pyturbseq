@@ -90,8 +90,9 @@ import numpy as np
 
 import io
 import sys
+import multiprocessing
 
-def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=True):
+def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, quiet=True):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
 
@@ -120,22 +121,22 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=Tru
         quiet=quiet,
     )
 
-    if verbose:
+    if not quiet:
         print(f"DESeq2 object created for {design_col}.")
 
     try:
         # create a text trap and redirect stdout
-        # if not verbose:
-        #             # create a text trap and redirect stdout
-        #     text_trap = io.StringIO()
-        #     sys.stdout = text_trap
+        if quiet:
+                    # create a text trap and redirect stdout
+            text_trap = io.StringIO()
+            sys.stdout = text_trap
 
         # execute function
         dds.deseq2()
 
-        # if not verbose:
-        #     # now restore stdout function
-        #     sys.stdout = sys.__stdout__
+        if quiet:
+            # now restore stdout function
+            sys.stdout = sys.__stdout__
 
     except Exception as e:
         print(f"Exception in DESeq2 execution: {e}")
@@ -168,12 +169,12 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=Tru
     df = stat_res.results_df
     df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
 
-    if verbose:
+    if not quiet:
         print(f"DESeq2 analysis completed for {design_col}.")
 
     return df
 
-def get_all_degs_parallel(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, verbose=True):
+def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, quiet=False):
     """
     Run DESeq2 analysis in parallel for multiple conditions.
 
@@ -190,20 +191,27 @@ def get_all_degs_parallel(adata, design_col, reference, conditions=None, n_cpus=
     pd.DataFrame: Concatenated DataFrame containing results for all conditions.
     """
     def get_degs_subset(condition):
-        if verbose:
+        if not quiet:
             print(f"Processing condition: {condition}")
         return get_degs(
             adata[adata.obs[design_col].isin([condition, reference])],
             design_col,
             ref_val=reference,
             n_cpus=n_cpus,
-            verbose=verbose
+            quiet=quiet
         )
+
+    if n_cpus * max_workers > multiprocessing.cpu_count():
+        # raise ValueError(f"Number of CPUs ({n_cpus}) * max_workers ({max_workers}) exceeds number of available CPUs ({multiprocessing.cpu_count()}).")
+        #warn instead
+        print(f"Number of CPUs ({n_cpus}) * max_workers ({max_workers}) exceeds number of available CPUs ({multiprocessing.cpu_count()}).")
+        print(f"Setting n_cpus to {multiprocessing.cpu_count() // max_workers}")
+        n_cpus = multiprocessing.cpu_count() // max_workers
 
     if conditions is None:
         conditions = list(set(adata.obs[design_col]) - {reference})
 
-    if verbose:
+    if not quiet:
         print(f"Starting parallel DESeq2 analysis for {len(conditions)} conditions.")
 
     dfs = []
@@ -225,38 +233,7 @@ def get_all_degs_parallel(adata, design_col, reference, conditions=None, n_cpus=
         executor.shutdown(wait=False)
         raise
 
-    if verbose:
+    if not quiet:
         print("All conditions processed. Concatenating results...")
 
     return pd.concat(dfs, ignore_index=True)
-
-
-def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, verbose=True):
-
-    def get_degs_subset(condition):
-        df = get_degs(
-            adata[adata.obs[design_col].isin([condition, reference])],
-            design_col,
-            ref_val=reference,
-            n_cpus=n_cpus
-        )
-        df['condition'] = condition
-        return df
-    
-    if conditions is None: #get all conditions if not specified
-        conditions = adata.obs[design_col].unique()
-        #remove reference from conditions
-        conditions = [x for x in conditions if x != reference]
-
-    if verbose: 
-        print(f"Running DESeq2 for {len(conditions)} conditions.")
-
-    #get all dfs
-    dfs = [get_degs_subset(condition) for condition in conditions]
-
-    if verbose:
-        print("Concatenating results...")
-
-    #concatenate
-    df = pd.concat(dfs)
-    return df
