@@ -3,6 +3,7 @@ from sklearn.linear_model import LinearRegression, TheilSenRegressor
 from scipy.stats import pearsonr, spearmanr
 # from dcor import distance_correlation, partial_distance_correlation
 from sklearn.metrics import r2_score
+from scipy.spatial import distance
 import scanpy as sc
 import numpy as np
 import pandas as pd
@@ -83,7 +84,11 @@ def get_model_fit(data, double, targets=None, plot=True, verbose=True):
     out['corr_a_b'] = spearmanr(aX, bX)[0]
 
     #how well correlated is the fit to the double perturbation
-    out['spearmanr'] = spearmanr(Z, doubleX)[0]
+    out['fit_spearmanr'] = spearmanr(Z, doubleX)[0]
+    out['fit_pearsonr'] = pearsonr(Z, doubleX)[0]
+
+    #other distance metrics
+    out['fit_cosine_dist'] = distance.cosine(Z, doubleX)
     
     out['coef_a'] = regr.coef_[0]
     out['coef_b'] = regr.coef_[1]
@@ -95,6 +100,8 @@ def get_model_fit(data, double, targets=None, plot=True, verbose=True):
     #get residual
     out['median_abs_residual'] = np.median(abs(doubleX - Z))
     out['rss'] = np.sum((doubleX - Z)**2)
+
+    #calculate some other 
 
 
     # if plot: 

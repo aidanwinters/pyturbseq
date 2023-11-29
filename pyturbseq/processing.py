@@ -2,6 +2,9 @@ from scipy.sparse import csr_matrix
 import numpy as np
 import pandas as pd
 
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, leaves_list
+
 def filter_to_feature_type(
     adata,
     feature_type='Gene Expression'
