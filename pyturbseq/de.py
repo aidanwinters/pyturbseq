@@ -91,7 +91,7 @@ import numpy as np
 import io
 import sys
 
-def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=False):
+def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=True):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
 
@@ -120,19 +120,22 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=Fal
         quiet=quiet,
     )
 
+    if verbose:
+        print(f"DESeq2 object created for {design_col}.")
+
     try:
         # create a text trap and redirect stdout
-        if not verbose:
-                    # create a text trap and redirect stdout
-            text_trap = io.StringIO()
-            sys.stdout = text_trap
+        # if not verbose:
+        #             # create a text trap and redirect stdout
+        #     text_trap = io.StringIO()
+        #     sys.stdout = text_trap
 
         # execute function
         dds.deseq2()
 
-        if not verbose:
-            # now restore stdout function
-            sys.stdout = sys.__stdout__
+        # if not verbose:
+        #     # now restore stdout function
+        #     sys.stdout = sys.__stdout__
 
     except Exception as e:
         print(f"Exception in DESeq2 execution: {e}")
@@ -150,17 +153,17 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=Fal
 
     # Running the statistical analysis
 
-    if not verbose:
-                # create a text trap and redirect stdout
-        text_trap = io.StringIO()
-        sys.stdout = text_trap
+    # if not verbose:
+    #             # create a text trap and redirect stdout
+    #     text_trap = io.StringIO()
+    #     sys.stdout = text_trap
 
     stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)
     stat_res.summary()
 
-    if not verbose:
-        # now restore stdout function
-        sys.stdout = sys.__stdout__
+    # if not verbose:
+    #     # now restore stdout function
+    #     sys.stdout = sys.__stdout__
 
     df = stat_res.results_df
     df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
@@ -170,7 +173,7 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True, verbose=Fal
 
     return df
 
-def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, verbose=False):
+def get_all_degs_parallel(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, verbose=True):
     """
     Run DESeq2 analysis in parallel for multiple conditions.
 
@@ -226,3 +229,34 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
         print("All conditions processed. Concatenating results...")
 
     return pd.concat(dfs, ignore_index=True)
+
+
+def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, verbose=True):
+
+    def get_degs_subset(condition):
+        df = get_degs(
+            adata[adata.obs[design_col].isin([condition, reference])],
+            design_col,
+            ref_val=reference,
+            n_cpus=n_cpus
+        )
+        df['condition'] = condition
+        return df
+    
+    if conditions is None: #get all conditions if not specified
+        conditions = adata.obs[design_col].unique()
+        #remove reference from conditions
+        conditions = [x for x in conditions if x != reference]
+
+    if verbose: 
+        print(f"Running DESeq2 for {len(conditions)} conditions.")
+
+    #get all dfs
+    dfs = [get_degs_subset(condition) for condition in conditions]
+
+    if verbose:
+        print("Concatenating results...")
+
+    #concatenate
+    df = pd.concat(dfs)
+    return df
