@@ -37,7 +37,8 @@ def generate_perturbation_matrix(
     perturbation_col = 'feature_call',
     delim = '|',
     feature_list = None,
-    sparse = True,
+    # sparse = True,
+    verbose = True,
     ):
 
     #if there is no feature list, split all the features in the column and build one
@@ -45,6 +46,8 @@ def generate_perturbation_matrix(
         #get all the features but not nan
         labels = adata.obs[perturbation_col].dropna()
         feature_list = labels.str.split(delim).explode().unique()
+        if verbose:
+            print(f"Found {len(feature_list)} unique features.")
 
     #create a matrix of zeros with the shape of the number of cells and number of features
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
@@ -70,10 +73,34 @@ def generate_perturbation_matrix(
 
     #print num null 
 
-    if sparse:
-        return csr_matrix(perturbation_matrix)
+    # if sparse:
+    #     return csr_matrix(perturbation_matrix)
     else: 
         return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
+
+def add_perturbation_matrix(adata):
+    """
+    Add a perturbation matrix to an anndata object. 
+    """
+
+    adata.obsm['perturbation'] = pm.loc[guides.obs.index, :].values
+    guides.uns['perturbation_var'] = pm.columns.tolist()
+    guides
+
+    if inplace:
+        adata.layers['perturbations'] = generate_perturbation_matrix(
+            adata,
+            perturbation_col = perturbation_col,
+            feature_list = feature_list,
+            inplace = inplace
+            )
+    else:
+        return generate_perturbation_matrix(
+            adata,
+            perturbation_col = perturbation_col,
+            feature_list = feature_list,
+            inplace = inplace
+            )
 
 def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print

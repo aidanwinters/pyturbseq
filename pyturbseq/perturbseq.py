@@ -186,6 +186,37 @@ def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
 
     fig.tight_layout()
 
+def assign_guides(guides, max_ratio_2nd_1st=0.35, min_total_counts=10):
+    """ 
+    Assumes that guides is an AnnData object with counts at guides.X
+    """
+
+    matr = guides.X.toarray()
+    total_counts = matr.sum(axis=1)
+    #sort matr within each row
+    matr_sort = np.sort(matr, axis=1)
+    ratio_2nd_1st = matr_sort[:, -2] / matr_sort[:, -1]
+
+    #get argmax for each row
+    argmax = np.argmax(matr, axis=1)
+    assigned = guides.var.index[argmax].values
+
+
+    #set any that don't pass filter to none
+    assigned[(ratio_2nd_1st > max_ratio_2nd_1st) | (total_counts < min_total_counts)] = None
+
+    #print how many guides did not pass thresholds
+    print(f"{(ratio_2nd_1st > max_ratio_2nd_1st).sum()} guides did not pass ratio filter")
+    print(f"{(total_counts < min_total_counts).sum()} guides did not pass total counts filter")
+    #print total that are None
+    print(f"{(assigned == None).sum()} cells did not pass thresholds")
+
+    guides.obs['assigned_perturbation'] = assigned
+    guides.obs['guide_ratio_2nd_1st'] = ratio_2nd_1st
+    guides.obs['guide_total_counts'] = total_counts
+
+    return guides
+
 
 ### FEATURE CALLING FUNCTIONS
 
