@@ -162,7 +162,7 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=True):
     stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)
     stat_res.summary()
 
-    if not quiet:
+    if quiet:
         # now restore stdout function
         sys.stdout = sys.__stdout__
 
@@ -193,13 +193,15 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
     def get_degs_subset(condition):
         if not quiet:
             print(f"Processing condition: {condition}")
-        return get_degs(
+        df = get_degs(
             adata[adata.obs[design_col].isin([condition, reference])],
             design_col,
             ref_val=reference,
             n_cpus=n_cpus,
             quiet=quiet
         )
+        df['condition'] = condition
+        return df
 
     if n_cpus * max_workers > multiprocessing.cpu_count():
         # raise ValueError(f"Number of CPUs ({n_cpus}) * max_workers ({max_workers}) exceeds number of available CPUs ({multiprocessing.cpu_count()}).")
@@ -220,9 +222,9 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
             # Mapping of futures to their respective conditions
             future_to_condition = {executor.submit(get_degs_subset, condition): condition for condition in conditions}
 
-            # Initialize tqdm progress bar if verbose
+            # Initialize tqdm progress bar
             progress = tqdm(as_completed(future_to_condition), total=len(conditions), desc="Processing", unit="task")
-            
+
             for future in progress:
                 condition = future_to_condition[future]
                 # Collect results and append to list
@@ -236,4 +238,4 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
     if not quiet:
         print("All conditions processed. Concatenating results...")
 
-    return pd.concat(dfs, ignore_index=True)
+    return pd.concat(dfs)
