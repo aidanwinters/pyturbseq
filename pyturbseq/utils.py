@@ -9,6 +9,28 @@ import pandas as pd
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, leaves_list
 
+##### Reading in guides from Cellranger
+
+def get_CR_sgRNA_assignment(
+    cbcs,
+    sgRNA_analysis_out,
+    calls_file="protospacer_calls_per_cell.csv",
+    library_ref_file=None,
+    ):
+    """
+    Uses the cellranger calls and merges them with anndata along with some metrics
+    """
+    calls = pd.read_csv(sgRNA_analysis_out + calls_file, index_col=0)
+    print('Overlap with cbcs:')
+    inds = calls.index.intersection(cbcs)
+    print(len(inds) / (len(cbcs)))
+    calls = calls.loc[inds, :]
+
+    return calls
+
+
+
+
 def filter_to_feature_type(
     adata,
     feature_type='Gene Expression'
