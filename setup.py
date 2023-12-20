@@ -1,6 +1,5 @@
 from setuptools import setup
 
-
 setup(
     name='pyturbseq',
     author='Aidan Winters',
