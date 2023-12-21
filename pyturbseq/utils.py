@@ -286,7 +286,7 @@ def calculate_target_change(
     for cell, perturb in tqdm(zip(padata.X.toarray(), target_genes), disable=quiet):
         gene_idx = padata.var_names.get_loc(perturb) # get index of target gene
 
-        percent_value = ((cell[gene_idx]+1) - (reference_target_means[gene_idx] + 1)) / (reference_target_means[gene_idx] + 1) * 100
+        percent_value = ((cell[gene_idx]) - (reference_target_means[gene_idx])) / (reference_target_means[gene_idx]) * 100
         percent_kds.append(percent_value)
 
         zscore_value = (cell[gene_idx] - reference_target_means[gene_idx]) / reference_target_stds[gene_idx]
