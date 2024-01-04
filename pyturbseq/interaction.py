@@ -24,7 +24,7 @@ def get_singles(dual, delim='|', ref='NTC'):
 
     return delim.join(single_a), delim.join(single_b)
 
-def get_model_fit(data, double, targets=None, plot=True, verbose=True):
+def get_model_fit(data, double, method = 'theilsen', targets=None, plot=True, verbose=True):
     """
     Assumes no observations but many features.
     Assumes that perturbation is index of observations (this is the case for psueodbulked to perturbation)
@@ -54,22 +54,20 @@ def get_model_fit(data, double, targets=None, plot=True, verbose=True):
     bX = data.loc[B, targets].T
     doubleX = data.loc[double, targets].T
     
-    regr = LinearRegression(fit_intercept=False)
-    ts = TheilSenRegressor(fit_intercept=False,
+    if method == 'theilsen':
+        regr = TheilSenRegressor(fit_intercept=False,
                     max_subpopulation=1e5,
                     max_iter=1000,
-                    random_state=1000)  
+                    random_state=1000)
+    else: 
+        regr = LinearRegression(fit_intercept=False)
+
     X = singlesX
     y = doubleX
 
     regr.fit(X, y)
-    ts.fit(X, y)
 
     Z = regr.predict(X)
-    Zts = ts.predict(X)
-    Z = Zts
-
-
 
     out = {}
     out['perturbation'] = double
@@ -92,22 +90,17 @@ def get_model_fit(data, double, targets=None, plot=True, verbose=True):
     
     out['coef_a'] = regr.coef_[0]
     out['coef_b'] = regr.coef_[1]
+    out['coef_ratio'] = regr.coef_[0] / regr.coef_[1]
+    out['coef_difference'] = regr.coef_[0] - regr.coef_[1]
+    out['coef_abs_log_ratio'] = np.log2(abs(regr.coef_[0]/regr.coef_[1]))
+    out['coef_norm'] = np.mean([np.abs(out['coef_a']), np.abs(out['coef_b'])])
+    out['coef_norm2'] = np.sqrt(out['coef_a']**2 + out['coef_b']**2)
     out['score'] = regr.score(X, y)
-    out['ts_coef_a'] = ts.coef_[0]
-    out['ts_coef_b'] = ts.coef_[1]  
-    out['ts_score'] = ts.score(X, y)
 
     #get residual
     out['median_abs_residual'] = np.median(abs(doubleX - Z))
     out['rss'] = np.sum((doubleX - Z)**2)
-
-    #calculate some other 
-
-
-    # if plot: 
-        # plot_double_single(data, 'AR|HOXB13', genes=gs, xticklabels=True)
-    #     #plot a vs b, a vs ab, b vs ab, and ab vs fit
-        
+    
     return out, Z
 
 

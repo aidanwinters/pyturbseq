@@ -6,6 +6,9 @@ from scipy.sparse import csr_matrix
 import numpy as np
 import pandas as pd
 
+from adpbulk import ADPBulk
+
+
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, leaves_list
 
@@ -411,7 +414,144 @@ def call_guides(adata):
     guide_calls.X = guide_calls.X.astype('uint8')
     return guide_calls
 
+############################################################################################################
+##### Perturbation Similarity Analysis  #####
+############################################################################################################
+
+from scipy.spatial.distance import pdist, squareform
+from hdbscan import HDBSCAN
+
+def calculate_adjacency(adata, metric='correlation', inplace=True):
+    """
+    Get adjacency matrix from adata.
+    Args:
+        adata (AnnData): AnnData object
+        metric (str): metric to use for adjacency matrix, this is passed directly to scipy.spatial.distance.pdist
+    """
+    if inplace:
+        adata.obsm['adjacency'] = squareform(pdist(adata.X, metric=metric))
+    else:
+        return squareform(pdist(adata.X.T, metric=metric))
+
+def cluster_adjacency(adata, method='leiden', inplace=True):
+    """
+    Cluster adjacency matrix.
+    Args:
+        adata (AnnData): AnnData object, assumes .obsm['adjacency'] exists
+        method (str): clustering method, either 'hdbscan' or 'leiden'
+    """
+
+    if method == 'hdbscan':
+        clusterer = HDBSCAN(metric='precomputed',
+                            min_cluster_size=5,
+                            min_samples=1,
+                            cluster_selection_method='eom',
+                            alpha=1.0,
+                            )
+        clusterer.fit(adata.obsm['adjacency'])
+        labels = clusterer.labels_
+        if inplace:
+            adata.obs['adjacency_cluster'] = labels
+            #in this case, set unassigned (rows with -1 from hdbscan) to None
+            adata.obs['adjacency_cluster'] = adata.obs['adjacency_cluster'].astype('Int64').astype('str')
+            adata.obs['adjacency_cluster'] = adata.obs['adjacency_cluster'].replace('-1', None)
+        else:
+            return label
+    # elif method == 'leiden': #currently does not work unless adjacency is sparse (ie, 0,1 matrix)
+    #     sc.tl.leiden(
+    #         adata,
+    #         adjacency='adjacency',
+    #         key_added='adjacency_cluster'
+    #         )
+    else: 
+        raise ValueError('method must be either hdbscan or leiden')
 
 
+
+########################################################################################################################
+########################################################################################################################
+############# PSEUDO BULK and ZSCORE FUNCTIONS #########################################################################
+########################################################################################################################
+########################################################################################################################
+
+def zscore(adata, ref_col='perturbation',ref_val='NTC|NTC', scale_factor = None,):
     
+    ##check if csr matrix
+    if isinstance(adata.X, np.ndarray):
+        arr = adata.X
+    else:
+        arr = adata.X.toarray()
 
+    total_counts = arr.sum(axis=1)
+    if scale_factor is None:
+
+        median_count = np.median(total_counts)
+    else: 
+        median_count = scale_factor
+
+    scaling_factors = median_count / total_counts
+    scaling_factors = scaling_factors[:, np.newaxis] #reshape to be a column vector
+    arr = arr * scaling_factors
+    ref_inds = np.where(adata.obs[ref_col] == ref_val)[0]
+
+    #exit if not ref_inds
+    if len(ref_inds) == 0:
+        
+        raise ValueError(f"ref_col '{ref_col}' and ref_val '{ref_val}' yielded no results")
+
+    mean = arr[ref_inds,].mean(axis=0)
+    stdev = arr[ref_inds,].std(axis=0)
+    # stdev = np.std(adata[ref_inds,:].X, axis=0)
+    return np.array(np.divide((arr - mean), stdev))
+
+def zscore_cov(
+        adata, 
+        covariates=None,
+        **kwargs):
+    
+    #get median
+
+    #get mapping of index val to row val
+    # Create a dictionary mapping index to row number
+    index_to_row = {index: row for row, index in enumerate(adata.obs.index)}
+    normalized_array = np.empty_like(adata.X.toarray())
+    print(normalized_array.shape)
+
+    #first split the adata into groups based on covariates
+    if covariates is not None:
+        #iterate on each groupby for anndata and apply pseudobulk 
+        g = adata.obs.groupby(covariates)
+        meta = pd.DataFrame(g.groups.keys(), columns=covariates)
+        print(f"Splitting into {len(meta)} groups based on covariates: {covariates}")
+
+        mapping = g.groups.items()
+        for key, inds in mapping:
+            print(key)
+            rows = [index_to_row[index] for index in inds]
+            normalized_array[rows,] = zscore(adata[inds,], **kwargs)
+        # arr = np.vstack([zscore(adata[inds,], **kwargs) for key, inds in mapping])
+
+        ##append all the inds together: 
+        # inds = [inds for key, inds in mapping]
+
+        return normalized_array
+
+    else:
+        #if covariates are none then we just apply pseudobulk to the whole matrix (ie single sample)
+        return zscore(adata, **kwargs)
+
+
+def pseudobulk(adata, groupby, **kwargs):
+    """
+    Function to apply pseudobulk to anndata object
+    Args:
+        adata (ad.AnnData): AnnData object with guide calls in adata.obs['guide']
+        groupby (str): column in adata.obs to group by
+        **kwargs: arguments to pass to pseudobulk function
+    """
+    adpb = ADPBulk(adata, groupby=groupby, **kwargs)
+    pseudobulk_matrix = adpb.fit_transform()
+    sample_meta = adpb.get_meta().set_index('SampleName')
+    adata = sc.AnnData(pseudobulk_matrix, obs=sample_meta, var=adata.var)
+
+    return adata

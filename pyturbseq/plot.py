@@ -9,7 +9,28 @@ from . import processing as proc
 from .interaction import get_singles, get_model_fit
 
 
+from matplotlib.patches import Patch
 
+def plot_adj_matr(matr, row_colors=None, annot_order=None, show=False, **kwargs):
+
+        if row_colors is not None:
+                if annot_order is None:
+                        annot_order = list(set(row_colors))
+                lut = dict(zip(annot_order, sns.color_palette("Set2", len(annot_order))))
+                # row_colors = row_colors.map(lut).values
+                row_colors = [lut[i] for i in row_colors]
+        sns.clustermap(
+            matr,
+            row_colors=row_colors,
+            **kwargs)
+
+        if row_colors is not None:
+                handles = [Patch(facecolor=lut[name]) for name in lut]
+                plt.legend(handles, lut, title='Species',
+                        bbox_to_anchor=(0, 0), bbox_transform=plt.gcf().transFigure, loc='lower left')
+
+        if show:
+                plt.show()
 
 def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs):
 
