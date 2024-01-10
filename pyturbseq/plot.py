@@ -11,26 +11,69 @@ from .interaction import get_singles, get_model_fit
 
 from matplotlib.patches import Patch
 
-def plot_adj_matr(matr, row_colors=None, annot_order=None, show=False, **kwargs):
+def plot_adj_matr(
+    adata,
+    row_colors=None,
+    col_colors=None,
+    row_order=None,
+    col_order=None,
+    show=False,
+    **kwargs
+    ):
+    """
+    Plot an adjacency matrix with row colors
+    Args:  
+    """
 
-        if row_colors is not None:
-                if annot_order is None:
-                        annot_order = list(set(row_colors))
-                lut = dict(zip(annot_order, sns.color_palette("Set2", len(annot_order))))
-                # row_colors = row_colors.map(lut).values
-                row_colors = [lut[i] for i in row_colors]
-        sns.clustermap(
-            matr,
-            row_colors=row_colors,
-            **kwargs)
+    #check if .obsm['adjacency'] exists
+    if 'adjacency' not in adata.obsm.keys():
+        raise ValueError("No adjacency matrix found in adata.obsm['adjacency']")
 
-        if row_colors is not None:
-                handles = [Patch(facecolor=lut[name]) for name in lut]
-                plt.legend(handles, lut, title='Species',
-                        bbox_to_anchor=(0, 0), bbox_transform=plt.gcf().transFigure, loc='lower left')
+    # if row color is list do nothing, if its string, assume its the key from adata.obs
 
-        if show:
-                plt.show()
+   
+    if type(row_colors) == str:
+        row_colors = adata.obs[row_colors]
+    elif (type(row_colors) == list) | (type(row_colors) == np.ndarray) | (type(row_colors) == pd.Series):
+        pass
+    else:
+        row_colors = None
+
+    if row_colors is not None:
+            if row_order is None:
+                    row_order = list(set(row_colors))
+            lut = dict(zip(row_order, sns.color_palette("Set2", len(row_order))))
+            # row_colors = row_colors.map(lut).values
+            row_colors = [lut[i] for i in row_colors]
+
+
+    if type(col_colors) == str:
+        col_colors = adata.obs[col_colors]
+    elif (type(col_colors) == list) | (type(col_colors) == np.ndarray) | (type(col_colors) == pd.Series):
+        pass
+    else:
+        col_colors = None
+
+    if col_colors is not None:
+        if col_order is None:
+            col_order = list(set(col_colors))
+        lut = dict(zip(col_order, sns.color_palette("Set2", len(col_order))))
+        col_colors = [lut[i] for i in col_colors]
+
+
+    sns.clustermap(
+        adata.obsm['adjacency'],
+        row_colors=row_colors,
+        col_colors=col_colors,
+        **kwargs)
+
+    if row_colors is not None:
+            handles = [Patch(facecolor=lut[name]) for name in lut]
+            plt.legend(handles, lut, title='Species',
+                    bbox_to_anchor=(0, 0), bbox_transform=plt.gcf().transFigure, loc='lower left')
+
+    if show:
+        plt.show()
 
 def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs):
 
@@ -134,3 +177,24 @@ def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
     plt.title(f'{exp_val} KD vs {ref_val} for gene {gene}')
     plt.legend()
     plt.show()
+
+
+def square_plot(x,y, line=True, ax=None, show=True, **kwargs):
+    """
+    Plot a square plot of x vs y with a y=x line
+    Args:
+        x (pd.Series): x values
+        y (pd.Series): y values
+        ax (matplotlib.axes.Axes): axis to plot on
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5,5))
+    sns.scatterplot(x=x, y=y, ax=ax, **kwargs)
+    #add y = x line for min and max
+    # ax[i].plot([0,1], [0,1], color='red', linestyle='--')
+    #get min and max values
+    min_val = min(x.min(), y.min())
+    max_val = max(x.max(), y.max())
+    ax.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
+    if show:
+        plt.show()

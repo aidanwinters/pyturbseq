@@ -10,6 +10,8 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+from dcor import distance_correlation, partial_distance_correlation
+
 
 
 ## Function may not be necessary but assumes that a perturbation is a single string 
@@ -24,7 +26,7 @@ def get_singles(dual, delim='|', ref='NTC'):
 
     return delim.join(single_a), delim.join(single_b)
 
-def get_model_fit(data, double, method = 'theilsen', targets=None, plot=True, verbose=True):
+def get_model_fit(data, double, method = 'robust', targets=None, plot=True, verbose=True):
     """
     Assumes no observations but many features.
     Assumes that perturbation is index of observations (this is the case for psueodbulked to perturbation)
@@ -47,14 +49,12 @@ def get_model_fit(data, double, method = 'theilsen', targets=None, plot=True, ve
     else:
         targets = [t for t in targets if t in data.columns]
 
-
-
     singlesX = data.loc[[A,B], targets].T
     aX = data.loc[A, targets].T
     bX = data.loc[B, targets].T
     doubleX = data.loc[double, targets].T
     
-    if method == 'theilsen':
+    if method == 'robust':
         regr = TheilSenRegressor(fit_intercept=False,
                     max_subpopulation=1e5,
                     max_iter=1000,
@@ -92,7 +92,12 @@ def get_model_fit(data, double, method = 'theilsen', targets=None, plot=True, ve
     out['coef_b'] = regr.coef_[1]
     out['coef_ratio'] = regr.coef_[0] / regr.coef_[1]
     out['coef_difference'] = regr.coef_[0] - regr.coef_[1]
-    out['coef_abs_log_ratio'] = np.log2(abs(regr.coef_[0]/regr.coef_[1]))
+    out['coef_sum'] = regr.coef_[0] + regr.coef_[1]
+    out['log2_ratio_coefs'] = np.log2(abs(regr.coef_[0]) / abs(regr.coef_[1]))
+    out['log10_ratio_coefs'] = np.log10(abs(regr.coef_[0]) / abs(regr.coef_[1]))
+    out['abs_log10_ratio_coefs'] = abs(np.log10(abs(regr.coef_[0]) / abs(regr.coef_[1])))
+
+    # out['coef_abs_log_ratio'] = np.log2(abs(regr.coef_[0]/regr.coef_[1]))
     out['coef_norm'] = np.mean([np.abs(out['coef_a']), np.abs(out['coef_b'])])
     out['coef_norm2'] = np.sqrt(out['coef_a']**2 + out['coef_b']**2)
     out['score'] = regr.score(X, y)
@@ -100,12 +105,26 @@ def get_model_fit(data, double, method = 'theilsen', targets=None, plot=True, ve
     #get residual
     out['median_abs_residual'] = np.median(abs(doubleX - Z))
     out['rss'] = np.sum((doubleX - Z)**2)
+
+
+    #Tom's metrics
+    out['dcor_AnB_AB'] = distance_correlation(singlesX, doubleX) ## distance correlation between [A,B] and AB (the double perturbation)
+    out['dcor_A_B'] = distance_correlation(aX, bX) ## distance correlation between A and B
+    out['dcor_AnB_fit'] = distance_correlation(singlesX, Z) ## distance correlation between the [A, B] and predicted AB
+    out['dcor_AB_fit'] = distance_correlation(doubleX, Z) ## distance correlation between AB and predicted AB
+    out['dcor_A'] = distance_correlation(aX, doubleX) ## distance correlation between A and predicted AB
+    out['dcor_B'] = distance_correlation(bX, doubleX) ## distance correlation between B and predicted AB
+    out['dcor_A_fit'] = distance_correlation(aX, Z) ## distance correlation between A and predicted AB
+    out['dcor_B_fit'] = distance_correlation(bX, Z) ## distance correlation between B and predicted AB
+    out['min_dcor'] = min(out['dcor_A'], out['dcor_B'])
+    out['max_dcor'] = max(out['dcor_A'], out['dcor_B'])
+    out['dcor_ratio'] = out['min_dcor']/out['max_dcor']
     
-    return out, Z
+    return out
 
 
 def fit_many(data, doubles, **kwargs):
-    res = pd.DataFrame([get_model_fit(data, d, **kwargs)[0] for d in doubles])
+    res = pd.DataFrame([get_model_fit(data, d, **kwargs) for d in doubles])
     return res.set_index('perturbation')
 
 def get_val(df, row_ind, col_ind):

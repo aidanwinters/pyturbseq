@@ -127,7 +127,8 @@ def generate_perturbation_matrix(
 
 def get_perturbation_matrix(
         adata, 
-        perturbation_col = 'feature_call',      
+        perturbation_col = 'feature_call',
+        inplace = True,     
         **kwargs      
         ):
     """
@@ -147,10 +148,13 @@ def get_perturbation_matrix(
             **kwargs
             )
 
-    adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].values
-    cols = pm.columns.tolist()
-    adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
-    return adata
+    if inplace:
+        adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].values
+        cols = pm.columns.tolist()
+        adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
+    else:
+        return pm.loc[adata.obs.index, :]
+    # return adata
 
 def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print
@@ -426,27 +430,32 @@ def calculate_adjacency(adata, metric='correlation', inplace=True):
     Get adjacency matrix from adata.
     Args:
         adata (AnnData): AnnData object
-        metric (str): metric to use for adjacency matrix, this is passed directly to scipy.spatial.distance.pdist
+        metric (str): metric to use for adjacency matrix, this is passed directly to scipy.spatial.distance.pdist. 
     """
     if inplace:
         adata.obsm['adjacency'] = squareform(pdist(adata.X, metric=metric))
+        #if metric is correlation, then  convert to 1 - correlation
+        # if metric == 'correlation':
+        #     adata.obsm['adjacency'] = 1 - adata.obsm['adjacency']
     else:
         return squareform(pdist(adata.X.T, metric=metric))
 
-def cluster_adjacency(adata, method='leiden', inplace=True):
+def cluster_adjacency(adata, method='leiden', inplace=True, **kwargs):
     """
     Cluster adjacency matrix.
     Args:
         adata (AnnData): AnnData object, assumes .obsm['adjacency'] exists
         method (str): clustering method, either 'hdbscan' or 'leiden'
     """
+    #if adjacency matrix does not exist, calculate it
+    if 'adjacency' not in adata.obsm.keys():
+        print("No adjacency found at .obsm['adjacency']. Calculating adjacency matrix with default params...")
+        calculate_adjacency(adata, inplace=True)
 
     if method == 'hdbscan':
         clusterer = HDBSCAN(metric='precomputed',
-                            min_cluster_size=5,
-                            min_samples=1,
-                            cluster_selection_method='eom',
-                            alpha=1.0,
+                            # min_samples=1,
+                            **kwargs
                             )
         clusterer.fit(adata.obsm['adjacency'])
         labels = clusterer.labels_
@@ -456,7 +465,7 @@ def cluster_adjacency(adata, method='leiden', inplace=True):
             adata.obs['adjacency_cluster'] = adata.obs['adjacency_cluster'].astype('Int64').astype('str')
             adata.obs['adjacency_cluster'] = adata.obs['adjacency_cluster'].replace('-1', None)
         else:
-            return label
+            return labels
     # elif method == 'leiden': #currently does not work unless adjacency is sparse (ie, 0,1 matrix)
     #     sc.tl.leiden(
     #         adata,
@@ -474,7 +483,7 @@ def cluster_adjacency(adata, method='leiden', inplace=True):
 ########################################################################################################################
 ########################################################################################################################
 
-def zscore(adata, ref_col='perturbation',ref_val='NTC|NTC', scale_factor = None,):
+def zscore(adata, ref_col='perturbation', ref_val='NTC|NTC', scale_factor = None,):
     
     ##check if csr matrix
     if isinstance(adata.X, np.ndarray):

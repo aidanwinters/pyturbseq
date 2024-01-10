@@ -132,7 +132,6 @@ def binarize_guides(adata, threshold_df=None, threshold_file=None, threshold_col
     adata.X = csr_matrix(binX.astype(int))
     return adata
 
-
 def check_calls(guide_call_matrix, expected_max_proportion=0.2):
     """
     Function to check if a given guide is enriched above expected
