@@ -5,7 +5,7 @@ from adjustText import adjust_text
 import numpy as np
 import scanpy as sc
 
-from . import processing as proc
+from . import utils as proc
 from .interaction import get_singles, get_model_fit
 
 
@@ -179,7 +179,7 @@ def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
     plt.show()
 
 
-def square_plot(x,y, line=True, ax=None, show=True, **kwargs):
+def square_plot(x,y, ax=None, show=True, **kwargs):
     """
     Plot a square plot of x vs y with a y=x line
     Args:

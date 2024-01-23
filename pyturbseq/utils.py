@@ -85,6 +85,7 @@ def generate_perturbation_matrix(
     perturbation_col = 'feature_call',
     delim = '|',
     feature_list = None,
+    set_ref_1 = None,
     # sparse = True,
     verbose = True,
     ):
@@ -110,6 +111,14 @@ def generate_perturbation_matrix(
         except:
             counter += 1
 
+    if set_ref_1 is not None:
+        #automatically set reference to 1
+        #this is done because techincally every cell also is part reference
+        #however, some workflows may rely on only seeing a 1 here when when the cell is annotating as reference for 1 of N conditions
+        if set_ref_1 not in feature_dict.keys():
+            raise ValueError(f"Trying to pass 'set_ref_1' of '{set_ref_1}' to 'generate_perturbation_matrix' but not found in feature list")
+        perturbation_matrix[:, feature_dict[set_ref_1]] = 1
+
     #ensure perturbation matrix is in the same order as adata.X
     # using feature_Dict
     #get the order of the features in the perturbation matrix
@@ -128,7 +137,7 @@ def generate_perturbation_matrix(
 def get_perturbation_matrix(
         adata, 
         perturbation_col = 'feature_call',
-        inplace = True,     
+        inplace = True,    
         **kwargs      
         ):
     """

@@ -20,7 +20,7 @@ setup(
         'fastcluster',
         'adjusttext',
         'pydeseq2',
-        'statsmodels',
+        'statsmodels==0.13.5',
         'adpbulk',
         'anndata',
     ]
