@@ -447,6 +447,120 @@ def get_model_statsmodels(
         return out
 
 
+##############################################################################################################
+## Updated Function for interaction modeling FOR 2 PERTURBATIONS that includes reference cells
+# this builds on the statsmodels implementation which added the following: 
+    # - estimation of coefficient significance and p-values via wald test (ie the background test done by statsmodels)
+    # - use of robust regression (ie TheilSenRegressor) to avoid outliers
+# This implementation simply add the reference cells and removes the need to subtract reference mean from the values
+# Rationale for this: it seems that with the reference mean subtraction, there was an inflation of pvals 
+#   for coefficients (including the interaciton term) with lowly expressed genes that had a consistent decrease compared to reference 
+
+def get_2pertModel_wNTC(
+        double, target,
+        adata = None,
+        perturbation_col='perturbation', 
+        reference='NTC', 
+        delim='|', 
+        quiet=False, 
+        plot=False,
+        ):
+    
+        singles = get_singles(double, ref=reference)
+        perturbations = [singles[0], singles[1], double]
+
+        if adata is not None:
+                adata = adata[:, target]
+                ref_val_combined = reference + delim + reference
+                y_ref = adata[adata.obs[perturbation_col] == ref_val_combined, :].X.toarray().flatten()
+                y0 = y_ref.mean()
+
+                data = adata[adata.obs[perturbation_col].isin(perturbations), :]
+                single_genes = double.split(delim)
+                indicators = get_perturbation_matrix(data, perturbation_col=perturbation_col, inplace=False, verbose=False)
+                indicators = indicators.loc[:, single_genes]
+                # indicators[double] = indicators[single_genes[0]] * indicators[single_genes[1]] 
+
+                df = pd.DataFrame(indicators, columns=single_genes)
+                y = data.X.toarray().flatten() - y0
+        
+                df['y'] = list(y)
+
+                out = {
+                        'perturbation': double, 'a': singles[0], 'b': singles[1], 'reference': ref_val_combined,
+                        'target': target, 'n_cells': indicators.shape[0],
+                        'ref_mean': float(y0),
+                        'ref_median': float(np.median(y_ref)),
+                        'n_cells': indicators.shape[0]
+                }
+        else:
+                raise ValueError("Must provide adata")
+
+
+
+        formula = f'y ~ {single_genes[0]} + {single_genes[1]} + {single_genes[0]}:{single_genes[1]} -1'
+        regr = smf.rlm(formula, data=df)
+        regr_fit = regr.fit()
+        Z  = regr_fit.predict(df)
+
+        for i, val in enumerate(['a', 'b', 'ab']):
+                out[f'pval_{val}'] = regr_fit.pvalues[i]
+                out[f'tstat_{val}'] = regr_fit.tvalues[i]
+                out[f'std_err_{val}'] = regr_fit.bse[i]
+                out[f'coef_{val}'] = regr_fit.params[i]
+
+        # out['score'] = regr_fit.rsquared
+        out['corr_fit'] = spearmanr(Z.values, y)[0]
+
+
+        for val, pert in zip(['a', 'b', 'ab'], perturbations):
+                inds = data.obs[perturbation_col] == pert
+                out[f'n_cells_{val}'] = np.sum(inds)
+                out[f'mean_{val}'] = float(np.mean(y[inds]))
+                out[f'predicted_mean_{val}'] = float(np.mean(Z[inds]))
+                out[f'median_{val}'] = float(np.median(y[inds]))
+                out[f'predicted_median_{val}'] = float(np.median(Z[inds]))
+
+        #add predictions for ab group when not using the ab coef
+        inds = data.obs[perturbation_col] == double
+        ab_indicators = indicators.loc[inds, single_genes]
+        pred_ab_no_interaction_term = out['coef_a'] * ab_indicators[single_genes[0]] + out['coef_b'] * ab_indicators[single_genes[1]]
+        out['predicted_mean_ab_no_interaction_term'] = float(np.mean(pred_ab_no_interaction_term))
+        out['predicted_median_ab_no_interaction_term'] = float(np.median(pred_ab_no_interaction_term))
+        out['corr_ab_no_interaction_term'] = spearmanr(y[inds], pred_ab_no_interaction_term)[0]
+
+        ##other additional metrics
+        out['abs_coef_ab'] = abs(out['coef_ab'])
+        out['abs_coef_a'] = abs(out['coef_a'])
+        out['abs_coef_b'] = abs(out['coef_b'])
+        
+        out['direction_interaction'] = np.sign(out['coef_ab'])
+        out['direction_interaction_wA'] = np.sign(out['coef_ab'] * out['coef_a']) #negative if there is disagreemtn
+        out['direction_interaction_wB'] = np.sign(out['coef_ab'] * out['coef_b']) #negative if there is disagreemt
+        out['direction_interaction_wA_wB'] = np.sign(out['coef_ab'] * out['coef_a'] * out['coef_b']) #negative if there is any disagreemt
+        out['relative_magnitude_interaction'] = out['abs_coef_ab'] / (out['abs_coef_a'] + out['abs_coef_b'])
+
+        out['predicted_mean_ab_no_interaction'] = out['coef_a'] + out['coef_b']
+        out['predicted_sign_ab_no_interaction'] = np.sign(out['predicted_mean_ab_no_interaction'])
+        out['interaction_effect'] = out['predicted_sign_ab_no_interaction'] * out['direction_interaction']
+
+
+        if plot and not quiet:
+                fig, ax = plt.subplots(1, 2, figsize=(10,5))
+                sns.boxplot(x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations)
+                ax[0].set_title(f"Target: {target}")
+                ax[0].set_ylabel("Expression (difference from reference)")
+                sns.scatterplot(y=y, x=Z, hue=data.obs[perturbation_col], hue_order = perturbations, ax=ax[1], alpha=0.7)
+                ax[1].set_ylabel('Actual'); ax[1].set_xlabel('Fit')
+                model_string = f"{round(out['coef_a'],2)}{out['a']} + {round(out['coef_b'],2)}{out['b']} + {round(out['coef_ab'],2)}{out['perturbation']}"
+                ax[1].set_title(f"Spearman: {out['corr_fit']:.2f} - pval AB {round(out['pval_ab'], 3)}\n{model_string}")
+                fig.tight_layout(); plt.show()
+
+        return out
+
+
+
+
 
 ##############################################################################################################
     ## Updated Modeling function including reference cells and Negative Binomial/Poisson assumption

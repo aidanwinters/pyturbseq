@@ -4,6 +4,7 @@ import pandas as pd
 from adjustText import adjust_text
 import numpy as np
 import scanpy as sc
+from scipy.stats import spearmanr, pearsonr
 
 from . import utils as proc
 from .interaction import get_singles, get_model_fit
@@ -179,7 +180,7 @@ def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
     plt.show()
 
 
-def square_plot(x,y, ax=None, show=True, **kwargs):
+def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
     """
     Plot a square plot of x vs y with a y=x line
     Args:
@@ -193,6 +194,17 @@ def square_plot(x,y, ax=None, show=True, **kwargs):
     #add y = x line for min and max
     # ax[i].plot([0,1], [0,1], color='red', linestyle='--')
     #get min and max values
+
+    if corr == 'spearman':
+        corr = spearmanr(x,y)[0]
+    elif corr == 'pearson':
+        corr = pearsonr(x,y)[0]
+    
+    if corr is not None:
+        #put correlation bottom right
+        ax.text(0.8, 0.1, f"r={round(corr,2)}", transform=ax.transAxes)
+
+
     min_val = min(x.min(), y.min())
     max_val = max(x.max(), y.max())
     ax.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
