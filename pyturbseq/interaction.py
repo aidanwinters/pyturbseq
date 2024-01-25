@@ -217,6 +217,10 @@ def get_model(
         n_permutations=100,
         alpha=0.05,
         n_jobs=None):
+    """
+
+    Implementation of tom norman's modeling approach for GIs
+    """
     # Prepare data
 
     adata = adata[:, target].copy()
@@ -441,3 +445,196 @@ def get_model_statsmodels(
                 fig.tight_layout(); plt.show()
 
         return out
+
+
+
+##############################################################################################################
+    ## Updated Modeling function including reference cells and Negative Binomial/Poisson assumption
+
+import numpy as np
+import pandas as pd
+from scipy.stats import spearmanr, pearsonr
+from scipy.sparse import csr_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+from joblib import Parallel, delayed
+import scanpy as sc
+from pyturbseq.utils import get_perturbation_matrix
+
+import statsmodels.formula.api as smf
+import statsmodels.api as sm
+
+def estimate_alpha_empirical(y):
+    mean_y = np.mean(y)
+    var_y = np.var(y, ddof=1)
+    if mean_y <= var_y:  # Check for overdispersion
+        try:
+            dispersion_factor = (var_y - mean_y) / mean_y**2
+            alpha = 1 / dispersion_factor
+        except ZeroDivisionError:
+            raise ValueError("Cannot estimate alpha when mean_y is 0")
+    else: 
+        alpha = None #assume poisson estimate
+    return alpha, mean_y, var_y
+
+def breakdown_triple_wRef(input_str, third_pos='css', ref="control", delim="|"):
+    split = input_str.split(delim)
+    #confirm third pos is in split and if so make sure at the end
+    if third_pos in split:
+        split.remove(third_pos)
+        split.append(third_pos)
+    else:
+        raise ValueError(f"third_pos {third_pos} not in split {split}")
+    vals = {}
+    vals['ref'] = delim.join([ref] * 3)
+    vals['a'] = split[0] + delim + ref + delim + ref
+    vals['b'] = split[1] + delim + ref + delim + ref
+    vals['c'] = split[2] + delim + ref + delim + ref
+    vals['ab'] = split[0] + delim + split[1] + delim + ref
+    vals['ac'] = split[0] + delim + split[2] + delim + ref
+    vals['bc'] = split[1] + delim + split[2] + delim + ref
+    vals['abc'] = input_str
+    
+    #sort each of them: 
+    for key, val in vals.items():
+        vals[key] = delim.join(np.sort(val.split(delim)))
+    
+    split = [ref] + split
+    return vals, split
+
+def get_treatment_effect_model(
+        combo_perturbation, target,adata, 
+        perturbation_col='perturbation_treatment', 
+        reference='control', 
+        delim='|', 
+        coef_c = 'css',
+        eps = 1e-250,
+        method='negativebinomial',
+        quiet=False, 
+        plot=False,
+        ):
+    
+    # Prepare data
+    term2pert, s = breakdown_triple_wRef(combo_perturbation, third_pos=coef_c, delim = delim, ref=reference)
+    pert2term = {v:k for k,v in term2pert.items()}
+
+    perturbations = term2pert.values()
+    data = adata[adata.obs[perturbation_col].isin(perturbations), target]
+    #make sure that coef_c is the 3rd in var
+    indicators = get_perturbation_matrix(
+          data,
+          perturbation_col=perturbation_col,
+          inplace=False,
+          set_ref_1=reference,
+          verbose=False)
+    indicators = indicators.loc[:, s]
+    # return
+    # df = pd.DataFrame(indicators, columns=s)
+    y = data.X.toarray().flatten()
+    indicators['y'] = list(y)
+
+    indicators[perturbation_col] = data.obs[perturbation_col]
+    indicators['term'] = [pert2term[x] for x in indicators[perturbation_col]]
+
+    out = {
+            'perturbation': combo_perturbation, 'reference': term2pert['ref'],
+            'target': target, 'n_cells': indicators.shape[0],
+            'mean': float(np.mean(y)),
+            'var': float(np.var(y, ddof=1)),
+    }
+    out.update(term2pert)
+
+
+    formula = f'y ~ {s[0]} + {s[1]} + {s[2]} + {s[3]} + {s[1]}:{s[2]} + {s[1]}:{s[3]} + {s[2]}:{s[3]} + {s[1]}:{s[2]}:{s[3]} -1'
+
+    if method == 'robust':
+        out['method'] = 'robust'
+        print("Using robust regression") if not quiet else None
+        regr = smf.rlm(formula, data=indicators)
+    elif method == 'ols':
+        out['method'] = 'ols'
+        print("Using OLS regression") if not quiet else None
+        regr = smf.ols(formula, data=indicators)
+    elif method in ['negbin', 'nb', 'negativebinomial']:
+        print("Using Negative Binomial regression") if not quiet else None
+        y_ref = indicators.loc[indicators['term'] == 'ref', 'y'].values
+        alpha_estimated, mean_ref, var_ref = estimate_alpha_empirical(y_ref)
+        # print("Y REF")
+        # print(y_ref.shape)
+        print(f"Estimated alpha: {alpha_estimated} -  Mean: {mean_ref} - Variance: {var_ref}") if not quiet else None
+
+        if alpha_estimated is not None:
+            # Using GLM with a Negative Binomial family
+            out['method'] = 'negativebinomial'
+            regr = smf.glm(formula, data=indicators, family=sm.families.NegativeBinomial(alpha=alpha_estimated))
+        else:
+            out['method'] = 'poisson'
+             #use a poison regression
+            regr = smf.glm(formula, data=indicators, family=sm.families.Poisson())
+
+    regr_fit = regr.fit()
+    Z  = regr_fit.predict(indicators)
+    indicators['predicted'] = Z
+
+    # return regr_fit
+    for i, val in enumerate(term2pert.keys()):
+            out[f'pval_{val}'] = regr_fit.pvalues[i] + eps
+            out[f'tstat_{val}'] = regr_fit.tvalues[i]
+            out[f'std_err_{val}'] = regr_fit.bse[i]
+            out[f'coef_{val}'] = regr_fit.params[i]
+            out[f'abs_coef_{val}'] = abs(regr_fit.params[i])
+
+    out['-log10_pval_abc'] = -np.log10(regr_fit.pvalues[-1]+eps)
+
+    # out['score'] = regr_fit.rsquared
+    out['corr_fit'] = spearmanr(Z.values, y)[0]
+
+    for val, pert in term2pert.items():
+            inds = data.obs[perturbation_col] == pert
+            out[f'n_cells_{val}'] = np.sum(inds)
+            out[f'mean_{val}'] = float(np.mean(y[inds]))
+            out[f'var_{val}'] = float(np.var(y[inds], ddof=1))
+            out[f'predicted_mean_{val}'] = float(np.mean(Z[inds]))
+            out[f'median_{val}'] = float(np.median(y[inds]))
+            out[f'predicted_median_{val}'] = float(np.median(Z[inds]))
+
+    #add predictions for ab group when not using the ab coef
+    inds = data.obs[perturbation_col] == combo_perturbation
+    abc_indicators = indicators.loc[inds, s]
+    predicted_mean_abc_only_single = np.sum(abc_indicators * np.array([out['coef_ref'], out['coef_a'], out['coef_b'], out['coef_c']]), axis=1)
+    out['predicted_mean_abc_only_single'] = float(np.mean(predicted_mean_abc_only_single))
+    out['predicted_mean_abc_no_interaction'] = float(np.mean(np.sum(abc_indicators.iloc[:,:-1] * regr_fit.params[:-1], axis=1)))
+
+    if plot and not quiet:
+            fig, ax = plt.subplots(1, 2, figsize=(8,5))
+
+            sns.boxplot(x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations)
+            ax[0].set_title(f"Target: {target}")
+            ax[0].set_ylabel("Expression (difference from reference)")
+            ax[0].set_xlabel(None)
+            ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha='right')
+
+            #set color of each tick to its corresponding hue
+            for i, xtick in enumerate(ax[0].get_xticklabels()):
+                xtick.set_color(sns.color_palette()[i])
+             #add line with text for only single and no interaction
+            ax[0].axhline(out['predicted_mean_abc_only_single'], color='red', linestyle='--', alpha=0.3)
+            ax[0].axhline(out['predicted_mean_abc_no_interaction'], color='blue', linestyle='--', alpha=0.3)
+            # ax[0].text(0, out['predicted_mean_abc_only_single'], "only singles", color='red', alpha=0.3)
+            # ax[0].text(0, out['predicted_mean_abc_no_interaction'], "all but interaction", color='blue', alpha=0.3)
+            ax[0].text(0.5, 0.5, "only singles", color='red', alpha=0.3, transform=ax[0].transAxes)
+            ax[0].text(0.5, 0.4, "all but interaction", color='blue', alpha=0.3, transform=ax[0].transAxes)
+
+            eps = 1e-200
+            sns.scatterplot(y=-np.log10(regr_fit.pvalues + eps), x=regr_fit.params, hue=term2pert.values(), hue_order = perturbations, ax=ax[1], alpha=0.7)
+            #set legend outside
+            ax[1].axhline(-np.log10(0.05), color='black', linestyle='--', alpha=0.3)
+            ax[1].set_title("Coefficients")
+            ax[1].set_xlabel("Coefficient value")
+            ax[1].set_ylabel("-log10(p-value)")
+            #remove legend
+            ax[1].get_legend().remove()
+
+            fig.tight_layout(); plt.show()
+    return out
