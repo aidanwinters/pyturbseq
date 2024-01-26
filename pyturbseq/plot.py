@@ -180,6 +180,16 @@ def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
     plt.show()
 
 
+from scipy.stats import pearsonr
+import matplotlib.pyplot as plt 
+
+def corrfunc(x, y, ax=None, method='spearman', **kws):
+    """Plot the correlation coefficient in the top left hand corner of a plot."""
+    func = spearmanr if method == 'spearman' else pearsonr
+    r, _ = func(x, y, nan_policy='omit')
+    ax = ax or plt.gca()
+    ax.annotate(f'ρ = {r:.2f}', xy=(.1, .9), xycoords=ax.transAxes)
+
 def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
     """
     Plot a square plot of x vs y with a y=x line
@@ -196,9 +206,9 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
     #get min and max values
 
     if corr == 'spearman':
-        corr = spearmanr(x,y)[0]
+        corr = spearmanr(x,y, nan_policy='omit')[0]
     elif corr == 'pearson':
-        corr = pearsonr(x,y)[0]
+        corr = pearsonr(x,y, nan_policy='omit')[0]
     
     if corr is not None:
         #put correlation bottom right

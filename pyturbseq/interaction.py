@@ -219,7 +219,11 @@ def get_model(
         n_jobs=None):
     """
 
-    Implementation of tom norman's modeling approach for GIs
+    Implementation of 2 perturbation model similar to mSW/SNF paper from Cigall's group (REF needed).
+    Basic overview: 
+    1. A + B + AB = y 
+    2. Elastic net
+    3. Permutation test for coefficient significance 
     """
     # Prepare data
 
@@ -339,6 +343,7 @@ def get_model(
 
     return out
 
+
 ##############################################################################################################
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
@@ -353,6 +358,15 @@ def get_model_statsmodels(
         quiet=False, 
         plot=False,
         ):
+        """
+        Model for 2 perturbations using statsmodels pacakge
+        Basic Overiew: 
+        1. A + B + AB = y
+        2. Robust linear regression
+        3. Get p-values for coefficients via statsmodels package (ie wald test)
+
+        Much faster than permutation test but some worries about inflated statistics
+        """
     
         singles = get_singles(double, ref=reference)
         perturbations = [singles[0], singles[1], double]
@@ -465,6 +479,15 @@ def get_2pertModel_wNTC(
         quiet=False, 
         plot=False,
         ):
+        """
+        Model for 2 perturbations using statsmodels pacakge with addition of reference populations
+        Basic Overiew:
+        1. *Indicator model: ref + A + B + AB = y
+        2. Robust linear regression
+        3. Get p-values for coefficients via statsmodels package (ie wald test)
+        
+        *main difference from implementation with statsmodels is that we add reference indicators to the model and fit to A,B,AB, and ref cells
+        """
     
         singles = get_singles(double, ref=reference)
         perturbations = [singles[0], singles[1], double]
@@ -628,6 +651,13 @@ def get_treatment_effect_model(
         quiet=False, 
         plot=False,
         ):
+        """
+        Model for interaction between 3 perturbations using statsmodels pacakge. 
+        Basic Overiew:
+        1. Indicator model: ref + A + B + C + AB + AC + BC + ABC = y
+        2. Robust linear regression
+        3. Get p-values for coefficients via statsmodels package (ie wald test)
+        """
     
     # Prepare data
     term2pert, s = breakdown_triple_wRef(combo_perturbation, third_pos=coef_c, delim = delim, ref=reference)
@@ -674,8 +704,6 @@ def get_treatment_effect_model(
         print("Using Negative Binomial regression") if not quiet else None
         y_ref = indicators.loc[indicators['term'] == 'ref', 'y'].values
         alpha_estimated, mean_ref, var_ref = estimate_alpha_empirical(y_ref)
-        # print("Y REF")
-        # print(y_ref.shape)
         print(f"Estimated alpha: {alpha_estimated} -  Mean: {mean_ref} - Variance: {var_ref}") if not quiet else None
 
         if alpha_estimated is not None:
