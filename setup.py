@@ -1,11 +1,12 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='pyturbseq',
     author='Aidan Winters',
     author_email='aidanfwinters@gmail.com',
-    version='0.1.0',
-    packages=['pyturbseq'],
+    version='0.0.1',
+    packages=find_packages(where='src'),
+    package_dir={'': 'src'},
     python_requires='>3.11',
     install_requires=[
         'scanpy',
