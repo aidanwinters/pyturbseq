@@ -1,93 +1,106 @@
+##########################################################################
+# 
+# Feature Calling functions (ie guide, HTO, etc)
+#
+##########################################################################
 import scanpy as sc
-import re
 import pandas as pd
-import os
-import math
-import seaborn as sns
-import numpy as np
 import matplotlib.pyplot as plt
-from adpbulk import ADPBulk
+import numpy as np
+import seaborn as sns
 
+from sklearn.mixture import GaussianMixture
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
-import anndata as ad
+from scipy.sparse import csr_matrix
 
-def parse_h5(
-    CR_out,
-    pattern=r"opl(?P<opl>\d+).*lane(?P<lane>\d+)",
-    add_guide_calls=True,
-    ):
+def norm(x, target=10000):
+    return x / np.sum(x) * target
+
+def log10(x):
+    return np.log10(x + 1)
+
+def gm(x, n_components=2, subset=0.2, subset_minimum=50, nonzero=True, seed=0, **kwargs):
     """
-    Read in 10x data from a CRISPR screen.
-    Args: 
-        CR_out: path to the output directory of the CRISPR screen
-        pattern: regex pattern to extract metadata from the file name
-        add_guide_calls: whether to add guide calls to the adata.obs
+    Fits a Gaussian Mixture Model to the input data.
+    Args:
+        x: numpy array of data to fit
+        n_components: number of components to fit. Default 2
+        subset: fraction of data to fit on, this speeds up computation. Default 0.2
+        subset_minimum: minimum number of cells to fit on, if subset is too small. Default 50
+        nonzero: whether to subset the data to only include nonzero values. Default True
+        seed: random seed. Default 0
     """
-
-    rna_file = os.path.join(CR_out , "filtered_feature_bc_matrix.h5")
     
+    if nonzero:
+        dat_in = x[x > 0].reshape(-1,1)
+    else:
+        dat_in = x
 
-    print(f"Reading {rna_file}")
-    adata = sc.read_10x_h5(rna_file, gex_only=False)
-    adata.var_names_make_unique()
-    adata.obs_names_make_unique()
-    
-    ##add each capture group to adata.obs
-    match = re.search(pattern, rna_file)
-    for key, value in match.groupdict().items():
-        print(f"Adding {key} = {value}")
-        adata.obs[key] = value
-
-    ##Read in guide calls: 
-    if add_guide_calls:
-        print("Adding guide calls")
-        guide_call_file = os.path.join(CR_out, "crispr_analysis/protospacer_calls_per_cell.csv")
-        print(f"Reading {guide_call_file}")
-        guide_calls = pd.read_csv(guide_call_file, index_col=0)
-
-        cbcs = adata.obs.index
-        inds = guide_calls.index.intersection(cbcs)
-        guide_calls = guide_calls.loc[inds, :]
-
-        adata.obs = adata.obs.join(guide_calls)
-
-    return(adata)
+    if dat_in.shape[0] < 10:
+        print(f"too few cells ({dat_in.shape[0]}) to run GMM. Returning -1")
+        #return preds of -1
+        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
 
 
+    if subset: #optionally subset the data to fit on only a fraction, this speeds up computation
+        s = min(int(dat_in.shape[0]*subset), subset_minimum)
+        # print(f"subsetting to {subset}. {int(dat_in.shape[0]*subset)} cells of {dat_in.shape[0]}")
+        dat_in = dat_in[np.random.choice(dat_in.shape[0], size=s, replace=False), :]
 
-## add some of our own metrics using outputs from CR
-#split 'num_umis' column on '|' and sum all the values
-def parse_umi(x):
-    # if x is float:
-    if isinstance(x, float):
-        return {
-            'CR_total_umi': x,
-            'CR_max_umi': x,
-            'CR_ratio_2nd_1st': math.nan
-        }
+    try:
+        gmm = GaussianMixture(n_components=n_components, random_state=seed, **kwargs)
+        pred = gmm.fit(dat_in)
+    except:
+        print(f"failed to fit GMM. Returning -1")
+        #return preds of -1
+        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
+    #pred
+    pred = gmm.predict(x)
+    #get max prob
+    probs = gmm.predict_proba(x).max(axis=1)
 
-    split = [int(i) for i in x.split('|')]
-    #sort split
-    split.sort(reverse=True)
-    m = {
-        'CR_total_umi': sum(split),
-        'CR_max_umi': split[0],
-        'CR_ratio_2nd_1st': math.nan if len(split) == 1 else split[1]/split[0]
-    }
-    return m
+    #set class 0 as the lower mean, ie '0' is negative for the guide and '1' is positive
+    means = gmm.means_.flatten()
+    if means[0] > means[1]:
+        pred = np.where(pred == 0, 1, 0)
+        probs = 1 - probs
 
+    return pred, probs
+
+def get_pred(x):
+
+    l = log10(x.toarray())
+    out = gm(l.reshape(-1, 1))
+    return out[0]
+
+def call_guides(adata):
+    """
+    Accepts an anndata object with adata.X containing the counts of each guide.
+    In parallel, fits a GMM to each guide and returns the predicted class for each guide.
+    Args:
+        adata: anndata object with adata.X containing the counts of each guide
+    Returns:
+        anndata object with adata.X containing the predicted class for each guide
+    """
+    lil = adata.X.T.tolil()
+    obs = adata.obs.copy()
+    var = adata.var.copy()
+
+    print('Running GMMs...')
+    #add tqdm to results call
+    results = Parallel(n_jobs=1)(delayed(get_pred)(lst) for lst in tqdm(lil))
+
+    guide_calls = sc.AnnData(X=csr_matrix(results).T, obs=obs, var=var)
+    guide_calls.X = guide_calls.X.astype('uint8')
+    return guide_calls
 
 ########################################################################################################################
 ########################################################################################################################
 ############# GUIDE CALLING FUNCTIONS ##################################################################################
 ########################################################################################################################
 ########################################################################################################################
-
-def add_CR_umi_metrics(adata):
-    df = pd.DataFrame([parse_umi(x) for x in adata.obs['num_umis']], index=adata.obs.index)
-    #merge by index but keep index as index
-    adata.obs = adata.obs.merge(df, left_index=True, right_index=True)
-    return adata
 
 ##random pivot proportion function
 #convert above into function
@@ -96,7 +109,6 @@ def get_pct_count(df, col1, col2):
     vc = vc.pivot(index=col1, columns=col2, values='count')
     vc = vc.div(vc.sum(axis=1), axis=0)*100
     return vc
-
 
 ### function to take threshold mapping file and binarize guide matrix
 def binarize_guides(adata, threshold_df=None, threshold_file=None, threshold_col='UMI_threshold', inplace=False):
@@ -114,7 +126,6 @@ def binarize_guides(adata, threshold_df=None, threshold_file=None, threshold_col
     if len(overlap) == 0:
         print('No overlap between adata and threshold_df')
         return None
-    
 
     #synchornize so only feautres in threshold_df are kept
     adata = adata[:, overlap]
@@ -218,13 +229,11 @@ def assign_guides(guides, max_ratio_2nd_1st=0.35, min_total_counts=10):
 
 
 ### FEATURE CALLING FUNCTIONS
-
-
 import numpy as np
 import pandas as pd
 from sklearn.mixture import GaussianMixture
 
-def CLR_transform(df):
+def CLR(df):
     '''
     Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
     
@@ -286,7 +295,7 @@ def assign_hto_per_column_mixtureModel(hto_df, filter_on_prob=None):
     '''
     
     # Apply CLR transform to the dataframe
-    clr = CLR_transform(hto_df)
+    clr = CLR(hto_df)
 
     # Fit Gaussian Mixture to each column in the transformed dataframe
     n_components = 2
@@ -325,7 +334,7 @@ def assign_hto_mixtureModel(
     ):
 
     print(f'Fitting Gaussian Mixture Model....')
-    clr = CLR_transform(hto_df)
+    clr = CLR(hto_df)
 
     gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr.values)
     gm_assigned = gm.predict(clr.values)
@@ -349,106 +358,3 @@ def assign_hto_mixtureModel(
         'HTO_max_prob': max_probability
     }, index=hto_df.index)
     return df
-
-
-
-########################################################################################################################
-########################################################################################################################
-############# KNOCKDOWN FUNCTIONS ######################################################################################
-########################################################################################################################
-########################################################################################################################
-
-#deprecated
-# def plot_kd(adata, gene, ):
-#     gene_vals = adata[:,gene].X.toarray().flatten()
-#     ##plot AR for AR KD vs NTC|NTC
-#     gene_inds = (adata.obs['perturbation'].str.contains(gene + '\|')) | (adata.obs['perturbation'].str.contains('\|' + gene))
-#     NTC_inds = adata.obs['perturbation'] == 'NTC|NTC'
-#     print(f"Number of obs in NTC|NTC: {np.sum(NTC_inds)}")
-#     print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
-
-
-#     plt.hist(gene_vals[NTC_inds], label='NTC', alpha=0.5, bins=30)
-#     plt.hist(gene_vals[gene_inds], label=gene + ' KD', alpha=0.5, bins=30)
-#     #add mean line for each group
-#     plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
-#     plt.axvline(gene_vals[gene_inds].mean(), color='orange')
-#     plt.legend()
-#     plt.show()
-
-
-# def percent_knocked_down_per_cell(adata, perturbation_column, reference_label):
-#     """
-#     Compute the "percent knocked down" for each cell against a reference.
-    
-#     Parameters:
-#     - adata: anndata.AnnData object containing expression data
-#     - perturbation_column: column in adata.obs indicating the perturbation/knockdown
-#     - reference_label: label of the reference population in perturbation_column
-    
-#     Returns:
-#     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
-#     """
-    
-#     # Get mean expression values for reference population
-#     reference_means = adata[adata.obs[perturbation_column] == reference_label, :].X.toarray().mean(axis=0)
-    
-#     # Placeholder for percent knocked down values
-#     percent_kd_values = []
-#     reference_mean_values = []
-    
-#     # Loop through cells
-#     for cell, perturb in zip(adata.X.toarray(), adata.obs[perturbation_column]):
-#         if perturb == reference_label or perturb not in adata.var_names:
-#             percent_kd_values.append(None)
-#             reference_mean_values.append(None)
-#             continue
-
-#         # print('here')
-#         gene_idx = adata.var_names.get_loc(perturb)
-        
-#         percent_value = (1 - ((cell[gene_idx]+1) / (reference_means[gene_idx] + 1))) * 100
-#         percent_kd_values.append(percent_value)
-#         reference_mean_values.append(reference_means[gene_idx])
-    
-#     # Add to adata
-#     adata.obs['percent_kd'] = percent_kd_values
-#     adata.obs['reference_mean'] = reference_mean_values
-    
-#     return adata
-
-
-
-#####################################################################################################################
-#####################################################################################################################
-##################################################################################################################### 
-############# LIBRARY QC ############################################################################################
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-from scipy.spatial import distance
-from tqdm import tqdm
-
-def hamming_dist(a, b):
-    return distance.hamming(list(a), list(b))
-
-# get all hamming distances for pairs of guides
-def hamming_dist_matrix(ref):
-    """
-    This method take a list of strings, assumed to all be the same length, and pairwise haming distance
-    """
-    dists = np.zeros((len(ref), len(ref)))
-
-    #get triangle upper indices
-    triu_indices = np.triu_indices(len(ref), k=0)
-
-    # iterate over trianlge indices
-    for i, j in tqdm(zip(*triu_indices)):
-        d = hamming_dist(ref[i], ref[j])
-        dists[i, j] = d
-        dists[j, i] = d
-
-    return dists
-
-
-

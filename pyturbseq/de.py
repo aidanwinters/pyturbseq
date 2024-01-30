@@ -1,3 +1,10 @@
+##########################################################################
+# 
+# Functions for Differential Expression testing
+#
+##########################################################################
+
+
 # # from pydeseq2.dds import DeseqDataSet
 # # from pydeseq2.ds import DeseqStats
 # # import pandas as pd
@@ -300,15 +307,15 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
 
     return df
 
-def get_degs_subset(adata,  condition,  **kwargs):
-    df = get_degs(
-        adata,
-        design_col,
-        ref_val=reference,
-        **kwargs
-    )
-    df['condition'] = condition
-    return df
+# def get_degs_subset(adata,  condition,  **kwargs):
+#     df = get_degs(
+#         adata,
+#         design_col,
+#         ref_val=reference,
+#         **kwargs
+#     )
+#     df['condition'] = condition
+#     return df
 
 def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_workers=4, quiet=False):
     """
@@ -326,16 +333,16 @@ def get_all_degs(adata, design_col, reference, conditions=None, n_cpus=8, max_wo
     Returns:
     pd.DataFrame: Concatenated DataFrame containing results for all conditions.
     """
-    # def get_degs_subset(condition):
-    #     df = get_degs(
-    #         adata[adata.obs[design_col].isin([condition, reference])],
-    #         design_col,
-    #         ref_val=reference,
-    #         n_cpus=n_cpus,
-    #         quiet=quiet
-    #     )
-    #     df['condition'] = condition
-    #     return df
+    def get_degs_subset(condition):
+        df = get_degs(
+            adata[adata.obs[design_col].isin([condition, reference])],
+            design_col,
+            ref_val=reference,
+            n_cpus=n_cpus,
+            quiet=quiet
+        )
+        df['condition'] = condition
+        return df
 
     available_cpus = multiprocessing.cpu_count()
     n_cpus = min(n_cpus, available_cpus // max_workers)

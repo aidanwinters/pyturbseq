@@ -1,3 +1,9 @@
+##########################################################################
+# 
+# Functions for plotting and visualizing data
+#
+##########################################################################
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -5,7 +11,7 @@ from adjustText import adjust_text
 import numpy as np
 import scanpy as sc
 
-from . import utils as proc
+from .utils import cluster_df
 from .interaction import get_singles, get_model_fit
 
 
@@ -95,7 +101,7 @@ def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr
 
     sub = data.loc[conds, data.columns.isin(gs)]
 
-    subdf = proc.cluster_df(sub, cluster_rows=False)
+    subdf = cluster_df(sub, cluster_rows=False)
     # sub.obs
     fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 
