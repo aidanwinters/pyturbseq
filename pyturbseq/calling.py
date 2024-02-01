@@ -250,6 +250,7 @@ def CLR(df):
     '''
     logn1 = np.log(df + 1)
     T_clr = logn1.sub(logn1.mean(axis=0), axis=1)
+    
     return T_clr
 
 def get_gm(col, n_components=2):
@@ -328,13 +329,17 @@ def assign_hto_per_column_mixtureModel(hto_df, filter_on_prob=None):
 
 def assign_hto_mixtureModel(
     hto_df,
-    n_components=2,
+    n_components=None,
     filter_on_prob=None,
     per_column=False,
     ):
 
     print(f'Fitting Gaussian Mixture Model....')
     clr = CLR(hto_df)
+
+    if n_components is None:
+        print(f'\t No n_components provided, using {hto_df.shape[1]}')
+        n_components = hto_df.shape[1]
 
     gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr.values)
     gm_assigned = gm.predict(clr.values)
