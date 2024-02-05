@@ -222,15 +222,19 @@ def calculate_target_change(
     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
     """
 
-    final_adata = adata
-    
+    final_adata = adata    
     if not quiet: print(f"Computing percent change for '{perturbation_column}' across {adata.shape[0]} cells...")
+
+    #check inputs: 
+    duplicated_genes = adata.var.index.duplicated()
+    if sum(duplicated_genes) > 0:
+        raise ValueError(f"Duplicated gene names found in adata.var.index. Please remove duplicated gene names before running this function. \nGene names found: {list(adata.var.index[duplicated_genes])}")
 
     ##check to see if data is normalized to counts per cell
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
         sums = np.array(adata.X.sum(axis=1)).flatten()
-        dev = np.std(sums[0:10])
+        dev = np.std(sums)
         if dev > 1:
             print('Warning: data does not appear to be normalized to counts per cell. Normalizing with sc.pp.normalize_total(). To disable this behavior set check_norm=False.')
             #copy adata to preserve original object
@@ -255,6 +259,10 @@ def calculate_target_change(
     if not quiet: print(f"\tFound {original_length} unique perturbations in {perturbation_column} column.")
     target_gene_set = [x for x in target_gene_set if x in adata.var_names] #remove genes not in adata.var_names
     if not quiet: print(f"\tRemoved {original_length - len(target_gene_set)} perturbations not found in adata.var_names.")
+
+    #check if any target genes are not in adata.var_names
+    if len(target_gene_set) == 0:
+        raise ValueError(f"No target genes found in adata.var_names. Check that the perturbation_gene_map is correct and that the perturbation_column is correct")
 
     # padata.obs['target_gene'] = target_genes
     target_genes_filter = [x in target_gene_set for x in target_genes]
