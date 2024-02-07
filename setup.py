@@ -8,7 +8,7 @@ setup(
     name='pyturbseq',
     author='Aidan Winters',
     author_email='aidanfwinters@gmail.com',
-    version='0.0.3',
+    version='0.0.4',
     long_description=long_description,
     long_description_content_type='text/markdown',
     packages=['pyturbseq'],
