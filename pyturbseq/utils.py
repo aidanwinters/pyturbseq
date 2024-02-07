@@ -63,8 +63,11 @@ def generate_perturbation_matrix(
     adata,
     perturbation_col = 'feature_call',
     delim = '|',
+    reference_value = 'NTC',
     feature_list = None,
-    set_ref_1 = None,
+    keep_ref = False,
+    set_ref_1 = False,
+    return_boolean=True,
     # sparse = True,
     verbose = True,
     ):
@@ -76,6 +79,13 @@ def generate_perturbation_matrix(
         feature_list = labels.str.split(delim).explode().unique()
         if verbose:
             print(f"Found {len(feature_list)} unique features.")
+
+
+    if reference_value not in feature_list:
+        raise ValueError(f"Trying to pass 'reference_value' of '{keep_ref}' to 'generate_perturbation_matrix' but not found in feature list")
+
+    if not keep_ref:
+        feature_list = feature_list[feature_list != reference_value]
 
     #create a matrix of zeros with the shape of the number of cells and number of features
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
@@ -90,28 +100,18 @@ def generate_perturbation_matrix(
         except:
             counter += 1
 
-    if set_ref_1 is not None:
-        #automatically set reference to 1
-        #this is done because techincally every cell also is part reference
-        #however, some workflows may rely on only seeing a 1 here when when the cell is annotating as reference for 1 of N conditions
-        if set_ref_1 not in feature_dict.keys():
-            raise ValueError(f"Trying to pass 'set_ref_1' of '{set_ref_1}' to 'generate_perturbation_matrix' but not found in feature list")
-        perturbation_matrix[:, feature_dict[set_ref_1]] = 1
+    if set_ref_1 and keep_ref:
+        perturbation_matrix[:, feature_dict[reference_value]] = 1
 
-    #ensure perturbation matrix is in the same order as adata.X
-    # using feature_Dict
-    #get the order of the features in the perturbation matrix
-
-    # #split and append all
-    # #put perturbation matrix in same order as adata.X
-    # if inplace:
-    #     adata.layers['perturbations'] = csr_matrix(perturbation_matrix)
-
-    #print num null 
+    if return_boolean:
+        perturbation_matrix = perturbation_matrix.astype(bool) 
 
     # if sparse:
     #     return csr_matrix(perturbation_matrix)
-    return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
+    return pd.DataFrame(
+        perturbation_matrix,
+        index=adata.obs.index,
+        columns=feature_list)
 
 def get_perturbation_matrix(
         adata, 
@@ -136,9 +136,9 @@ def get_perturbation_matrix(
             )
 
     if inplace:
-        adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].values
-        cols = pm.columns.tolist()
-        adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
+        adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].copy()
+        # cols = pm.columns.tolist()
+        # adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
     else:
         return pm.loc[adata.obs.index, :]
 
