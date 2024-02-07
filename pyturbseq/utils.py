@@ -82,7 +82,7 @@ def generate_perturbation_matrix(
 
 
     if reference_value not in feature_list:
-        raise ValueError(f"Trying to pass 'reference_value' of '{keep_ref}' to 'generate_perturbation_matrix' but not found in feature list")
+        raise ValueError(f"Trying to pass 'reference_value' of '{reference_value}' to 'generate_perturbation_matrix' but not found in feature list")
 
     if not keep_ref:
         feature_list = feature_list[feature_list != reference_value]
@@ -202,10 +202,69 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
     return df
 
 
+import scanpy as sc
+import pandas as pd
+from tqdm import tqdm
+import numpy as np
+from scipy.sparse import csr_matrix
+import numpy as np
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, leaves_list
+import seaborn as sns
+import matplotlib.pyplot as plt
+from adpbulk import ADPBulk
+
+from importlib import reload
+import pyturbseq.utils
+reload(pyturbseq.utils)
+from pyturbseq.utils import get_perturbation_matrix
+
+
+def cells_not_normalized(adata):
+    sums = np.array(adata.X.sum(axis=1)).flatten()
+    dev = np.std(sums)
+    return True if dev > 1 else False
+
+def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool):
+    """
+    Compute the "percent change" for each cell against a reference.
+    
+    Parameters:
+    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
+    - perturbed_bool: boolean array indicating which cells are perturbed
+    - gene: gene name
+    - ref_mean: reference mean expression value
+    
+    Returns:
+    - A list of "percent knocked down" for each cell.
+    """
+
+    if gene not in adata.var_names:
+        out = {}
+        out['target_gene_expression'] = np.nan
+        out['target_reference_mean'] = np.nan
+        out['target_reference_std'] = np.nan
+        out['target_pct_change'] = np.nan
+        out['target_zscore'] = np.nan
+        return out
+
+    target_gene_expression = adata[:, gene].X.flatten()
+    reference_target_mean = np.mean(target_gene_expression[ref_bool])
+    reference_target_std = np.std(target_gene_expression[ref_bool])
+
+    out = {}
+    out['target_gene_expression'] = target_gene_expression[perturbed_bool]
+    out['target_reference_mean'] = reference_target_mean
+    out['target_reference_std'] = reference_target_std
+    out['target_pct_change'] = ((target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_mean) * 100
+    out['target_zscore'] = (target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_std
+
+    return out
+
 def calculate_target_change(
     adata,
-    perturbation_column,
-    reference_label,
+    perturbation_column=None,
+    reference_value=None,
     perturbation_gene_map=None,
     check_norm=True,
     quiet=False,
@@ -215,8 +274,11 @@ def calculate_target_change(
     
     Parameters:
     - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbation_column: column in adata.obs indicating the perturbation/knockdown
+    - perturbation_column: column in adata.obs indicating the perturbation/knockdown. If passed, then perturbation matrix is regenerated. Else, looks for adata.obsm['perturbation'].
     - reference_label: label of the reference population in perturbation_column
+    - perturbation_gene_map: dictionary mapping perturbations to genes. If None, then perturbation_column is assumed to be gene names.
+    - check_norm: if True, checks if data is normalized to counts per cell. If not, normalizes.
+    - quiet: if False, prints progress
     
     Returns:
     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
@@ -233,80 +295,76 @@ def calculate_target_change(
     ##check to see if data is normalized to counts per cell
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
-        sums = np.array(adata.X.sum(axis=1)).flatten()
-        dev = np.std(sums)
-        if dev > 1:
-            print('Warning: data does not appear to be normalized to counts per cell. Normalizing with sc.pp.normalize_total(). To disable this behavior set check_norm=False.')
-            #copy adata to preserve original object
+        if cells_not_normalized(adata):
+            if not quiet: print('\tData is not normalized to counts per cell. Normalizing...')
             adata = adata.copy()
             sc.pp.normalize_total(adata)
-    
-
+            print(type(adata.X))
         # Loop through cells
     if not quiet: print('\tComputing percent change for each cell...')
 
-    perturbed_inds = adata.obs[perturbation_column] != reference_label
-    padata = adata[perturbed_inds, :] #subset to perturbed cells
+    #convert to numpy if sparse
+    if type(adata.X) == csr_matrix:
+        adata.X = adata.X.toarray()
 
-    # translate perturbation labels to gene names if necessary
-    if perturbation_gene_map is not None:
-        target_genes = np.array([perturbation_gene_map[x] for x in padata.obs[perturbation_column]])
+    #if no perturbation matrix, create one
+    if perturbation_column is not None:
+        if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
+        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False)
+    elif 'perturbation' in adata.obsm.keys():
+        pm = adata.obsm['perturbation']
     else: 
-        target_genes = padata.obs[perturbation_column].values #if no mapping, its assumed that the perturbation directly maps to gene
+        raise ValueError("No perturbation matrix found in adata.obsm. Please provide a perturbation_column or run get_perturbation_matrix first.")
+
+    if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
+
+    #check that the gene a perturbation maps to is actually in adata
+    if perturbation_gene_map is not None:
+        #for now we assume all the perturbations are in the perturbation_gene_map
+        pm.columns = [perturbation_gene_map[x] for x in pm.columns]
     
-    target_gene_set = list(set(target_genes))
-    original_length = len(target_gene_set)
-    if not quiet: print(f"\tFound {original_length} unique perturbations in {perturbation_column} column.")
-    target_gene_set = [x for x in target_gene_set if x in adata.var_names] #remove genes not in adata.var_names
-    if not quiet: print(f"\tRemoved {original_length - len(target_gene_set)} perturbations not found in adata.var_names.")
-
-    #check if any target genes are not in adata.var_names
-    if len(target_gene_set) == 0:
-        raise ValueError(f"No target genes found in adata.var_names. Check that the perturbation_gene_map is correct and that the perturbation_column is correct")
-
-    # padata.obs['target_gene'] = target_genes
-    target_genes_filter = [x in target_gene_set for x in target_genes]
-    target_genes = target_genes[target_genes_filter]
-    padata = padata[target_genes_filter, target_gene_set] #subset to only target gene and perturbations with measured target genes
-
-    # Get mean expression values for reference population
-    if not quiet: print(f'\tComputing mean expression values for reference population: {reference_label}....')
-    reference_target_means = adata[~perturbed_inds, target_gene_set].X.toarray().mean(axis=0) #compute per gene mean expression for reference population
-    reference_target_stds  = adata[~perturbed_inds, target_gene_set].X.toarray().std(axis=0) #compute per gene stdev for reference population
-
-    # Placeholder for percent knocked down values
-    percent_kds = []
-    zscores = []
-    reference_means = []
-    reference_stds = []
-    target_gene_expression = []
-
-    if not quiet : print(f'\tComputing percent change for {padata.shape[0]} perturbed cells...')
-    for cell, perturb in tqdm(zip(padata.X.toarray(), target_genes), disable=quiet):
-        gene_idx = padata.var_names.get_loc(perturb) # get index of target gene
-
-        percent_value = ((cell[gene_idx]) - (reference_target_means[gene_idx])) / (reference_target_means[gene_idx]) * 100
-        percent_kds.append(percent_value)
-
-        zscore_value = (cell[gene_idx] - reference_target_means[gene_idx]) / reference_target_stds[gene_idx]
-        zscores.append(zscore_value)
-
-        reference_means.append(reference_target_means[gene_idx])
-        reference_stds.append(reference_target_stds[gene_idx])
-        target_gene_expression.append(cell[gene_idx])
+    check = [x in adata.var_names for x in pm.columns]
+    if sum(check) == 0:
+        raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
+    elif sum(check) != len(check):
+        if not quiet: print(f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names.")
     
-    # Add to adata
-    metrics = ['target_pct_change', 'target_zscore', 'target_reference_mean', 'target_reference_std', 'target_gene_expression']
-    for m in metrics:
-        final_adata.obs[m] = np.nan
 
-    final_adata.obs.loc[padata.obs.index, 'target_gene'] = target_genes
-    final_adata.obs.loc[padata.obs.index, 'target_pct_change'] = percent_kds
-    final_adata.obs.loc[padata.obs.index, 'target_zscore'] = zscores
-    final_adata.obs.loc[padata.obs.index, 'target_reference_mean'] = reference_means
-    final_adata.obs.loc[padata.obs.index, 'target_reference_std'] = reference_stds
-    final_adata.obs.loc[padata.obs.index, 'target_gene_expression'] = target_gene_expression
-    return final_adata
+    #reference labels are where pm row sums are 0
+    ref_bool = (pm.sum(axis=1) == 0).values
+    
+    zscore_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    pct_change_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    target_gex_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    reference_means = np.zeros(adata.shape[0])
+    reference_stds = np.zeros(adata.shape[0])
+    for i, (prtb, prtb_bool) in tqdm(enumerate(pm.items()), total=pm.shape[1], disable=quiet):
+        prtb_bool = prtb_bool.values
+        out = _get_target_change_single_perturbation(adata, prtb, prtb_bool, ref_bool)
+        pct_change_matr[prtb_bool, i] = out['target_pct_change']
+        zscore_matr[prtb_bool, i] = out['target_zscore']
+        target_gex_matr[prtb_bool, i] = out['target_gene_expression']
+        reference_means[i] = out['target_reference_mean']
+        reference_stds[i] = out['target_reference_std']
+
+    #if cells got more than 1 perturbation, then set these as .obs else 
+    if sum(pm.sum(axis=1) > 1) > 0:
+        if not quiet: print(f"Cells with more than 1 perturbation found. Adding to .obsm...")
+        final_adata.obsm['reference_means'] = pd.Series(reference_means, index=final_adata.obs.index)
+        final_adata.obsm['reference_stds'] = pd.Series(reference_stds, index=final_adata.obs.index)
+        final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
+        final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
+        final_adata.obsm['target_gene_expression'] = pd.DataFrame(target_gex_matr, index=final_adata.obs.index, columns=pm.columns)
+    else:
+        if not quiet: print(f"No cells with more than 1 perturbation. Adding to .obs...")
+        final_adata.obs['target_reference_mean'] = reference_means[np.argmax(pm.values, axis=1)]
+        final_adata.obs['target_reference_std'] = reference_stds[np.argmax(pm.values, axis=1)]
+
+        # pm = pm.stack()
+        final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_gene_expression'] = target_gex_matr[pm.values]
+
 
 ############################################################################################################
 ##### Perturbation Similarity Analysis  #####
