@@ -201,25 +201,6 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
         df = df.iloc[row_order]
     return df
 
-
-import scanpy as sc
-import pandas as pd
-from tqdm import tqdm
-import numpy as np
-from scipy.sparse import csr_matrix
-import numpy as np
-from scipy.spatial.distance import pdist
-from scipy.cluster.hierarchy import linkage, leaves_list
-import seaborn as sns
-import matplotlib.pyplot as plt
-from adpbulk import ADPBulk
-
-from importlib import reload
-import pyturbseq.utils
-reload(pyturbseq.utils)
-from pyturbseq.utils import get_perturbation_matrix
-
-
 def cells_not_normalized(adata):
     sums = np.array(adata.X.sum(axis=1)).flatten()
     dev = np.std(sums)
@@ -310,7 +291,7 @@ def calculate_target_change(
     #if no perturbation matrix, create one
     if perturbation_column is not None:
         if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
-        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False)
+        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False, verbose=not quiet)
     elif 'perturbation' in adata.obsm.keys():
         pm = adata.obsm['perturbation']
     else: 
@@ -336,8 +317,8 @@ def calculate_target_change(
     zscore_matr = np.zeros((adata.shape[0], pm.shape[1]))
     pct_change_matr = np.zeros((adata.shape[0], pm.shape[1]))
     target_gex_matr = np.zeros((adata.shape[0], pm.shape[1]))
-    reference_means = np.zeros(adata.shape[0])
-    reference_stds = np.zeros(adata.shape[0])
+    reference_means = np.zeros(pm.shape[1])
+    reference_stds = np.zeros(pm.shape[1])
     for i, (prtb, prtb_bool) in tqdm(enumerate(pm.items()), total=pm.shape[1], disable=quiet):
         prtb_bool = prtb_bool.values
         out = _get_target_change_single_perturbation(adata, prtb, prtb_bool, ref_bool)
@@ -350,8 +331,8 @@ def calculate_target_change(
     #if cells got more than 1 perturbation, then set these as .obs else 
     if sum(pm.sum(axis=1) > 1) > 0:
         if not quiet: print(f"Cells with more than 1 perturbation found. Adding to .obsm...")
-        final_adata.obsm['reference_means'] = pd.Series(reference_means, index=final_adata.obs.index)
-        final_adata.obsm['reference_stds'] = pd.Series(reference_stds, index=final_adata.obs.index)
+        final_adata.uns['target_reference_mean'] = pd.Series(reference_means, index=pm.columns)
+        final_adata.uns['target_reference_std'] = pd.Series(reference_stds, index=pm.columns)
         final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_gene_expression'] = pd.DataFrame(target_gex_matr, index=final_adata.obs.index, columns=pm.columns)
@@ -364,7 +345,6 @@ def calculate_target_change(
         final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_gene_expression'] = target_gex_matr[pm.values]
-
 
 ############################################################################################################
 ##### Perturbation Similarity Analysis  #####
