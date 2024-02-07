@@ -330,8 +330,8 @@ def calculate_target_change(
     #if cells got more than 1 perturbation, then set these as .obs else 
     if sum(pm.sum(axis=1) > 1) > 0:
         if not quiet: print(f"Cells with more than 1 perturbation found. Adding to .obsm...")
-        final_adata.uns['target_reference_mean'] = pd.Series(reference_means, index=pm.columns)
-        final_adata.uns['target_reference_std'] = pd.Series(reference_stds, index=pm.columns)
+        final_adata.uns['target_reference_mean'] = reference_means
+        final_adata.uns['target_reference_std'] = reference_stds
         final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_gene_expression'] = pd.DataFrame(target_gex_matr, index=final_adata.obs.index, columns=pm.columns)
