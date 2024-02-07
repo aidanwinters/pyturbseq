@@ -1,6 +1,6 @@
 # pyturbseq
 
-###Install
+### Install  
 Requires python version between 3.8 and 3.11 
 - tested most extensively with 3.11.4
 

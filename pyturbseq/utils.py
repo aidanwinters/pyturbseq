@@ -280,7 +280,6 @@ def calculate_target_change(
             if not quiet: print('\tData is not normalized to counts per cell. Normalizing...')
             adata = adata.copy()
             sc.pp.normalize_total(adata)
-            print(type(adata.X))
         # Loop through cells
     if not quiet: print('\tComputing percent change for each cell...')
 
