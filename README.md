@@ -1,9 +1,16 @@
 # pyturbseq
 
+### Install  
+Requires python version between 3.8 and 3.11 
+- tested most extensively with 3.11.4
 
-To install: 
+Recommended: install into conda/mamba environment
 ```
-git clone https://github.com/aidanwinters/pyturbseq
-cd pyturbseq
-pip install .
+conda create -n pyturbseq python=3.11
+conda activate pyturbseq
+```
+
+then install with pip: 
+```
+pip install pyturbseq
 ```

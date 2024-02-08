@@ -1,44 +1,26 @@
+##########################################################################
+# 
+# Functions for manipulation and filtering of anndata objects and other data structures
+#
+##########################################################################
 import scanpy as sc
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
 from scipy.sparse import csr_matrix
 import numpy as np
-import pandas as pd
-
-from adpbulk import ADPBulk
-
-
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, leaves_list
+import seaborn as sns
+import matplotlib.pyplot as plt
+from adpbulk import ADPBulk
 
-##### Reading in guides from Cellranger
-
-def add_CR_sgRNA(
-    adata,
-    sgRNA_analysis_out,
-    calls_file="protospacer_calls_per_cell.csv",
-    library_ref_file=None,
-    quiet=False,
-    ):
-    """
-    Uses the cellranger calls and merges them with anndata along with some metrics
-    """
-    calls = pd.read_csv(sgRNA_analysis_out + calls_file, index_col=0)
-    inds = calls.index.intersection(adata.obs.index)
-    if not quiet: print(f'Found sgRNA information for {len(inds)}/{adata.obs.shape[0]} ({round(len(inds) / adata.obs.shape[0] * 100, 2)}%) of cell barcodes')
-    calls = calls.loc[inds, :]
-
-    #merge with anndata obs
-    for col in calls.columns:
-        adata.obs.loc[inds, col] = calls[col]
-    return adata
-
-
+########################################################################################################################
+########################################################################################################################
+############# ADATA FILTERING FUNCTIONS ################################################################################
 ########################################################################################################################
 
 def filter_adata(adata, obs_filters=None, var_filters=None):
-    
     if obs_filters is not None:
         for f in obs_filters:
             adata = adata[adata.obs.query(f).index, :]
@@ -57,7 +39,6 @@ def filter_to_feature_type(
     Updates an anndata object to only include the GEX feature type in its .X slot. 
     Optionally adds the removed features to metadata
     """
-    ## Subset 
     return adata[:, adata.var['feature_types'] == feature_type].copy()
 
 def split_by_feature_type(
@@ -68,24 +49,25 @@ def split_by_feature_type(
     Updates an anndata object to only include the GEX feature type in its .X slot. 
     Optionally adds the removed features to metadata
     """
-    ## Subset 
     out = {}
     for ftype in adata.var['feature_types'].unique():
         out[ftype] = adata[:, adata.var['feature_types'] == ftype].copy()
-
     return out
 
 
+
+
 ########################################################################################################################
-
-
 #read in the feature call column, split all of them by delimiter 
 def generate_perturbation_matrix(
     adata,
     perturbation_col = 'feature_call',
     delim = '|',
+    reference_value = 'NTC',
     feature_list = None,
-    set_ref_1 = None,
+    keep_ref = False,
+    set_ref_1 = False,
+    return_boolean=True,
     # sparse = True,
     verbose = True,
     ):
@@ -97,6 +79,13 @@ def generate_perturbation_matrix(
         feature_list = labels.str.split(delim).explode().unique()
         if verbose:
             print(f"Found {len(feature_list)} unique features.")
+
+
+    if reference_value not in feature_list:
+        raise ValueError(f"Trying to pass 'reference_value' of '{reference_value}' to 'generate_perturbation_matrix' but not found in feature list")
+
+    if not keep_ref:
+        feature_list = feature_list[feature_list != reference_value]
 
     #create a matrix of zeros with the shape of the number of cells and number of features
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
@@ -111,28 +100,18 @@ def generate_perturbation_matrix(
         except:
             counter += 1
 
-    if set_ref_1 is not None:
-        #automatically set reference to 1
-        #this is done because techincally every cell also is part reference
-        #however, some workflows may rely on only seeing a 1 here when when the cell is annotating as reference for 1 of N conditions
-        if set_ref_1 not in feature_dict.keys():
-            raise ValueError(f"Trying to pass 'set_ref_1' of '{set_ref_1}' to 'generate_perturbation_matrix' but not found in feature list")
-        perturbation_matrix[:, feature_dict[set_ref_1]] = 1
+    if set_ref_1 and keep_ref:
+        perturbation_matrix[:, feature_dict[reference_value]] = 1
 
-    #ensure perturbation matrix is in the same order as adata.X
-    # using feature_Dict
-    #get the order of the features in the perturbation matrix
-
-    # #split and append all
-    # #put perturbation matrix in same order as adata.X
-    # if inplace:
-    #     adata.layers['perturbations'] = csr_matrix(perturbation_matrix)
-
-    #print num null 
+    if return_boolean:
+        perturbation_matrix = perturbation_matrix.astype(bool) 
 
     # if sparse:
     #     return csr_matrix(perturbation_matrix)
-    return pd.DataFrame(perturbation_matrix, index=adata.obs.index, columns=feature_list)
+    return pd.DataFrame(
+        perturbation_matrix,
+        index=adata.obs.index,
+        columns=feature_list)
 
 def get_perturbation_matrix(
         adata, 
@@ -150,7 +129,6 @@ def get_perturbation_matrix(
     Returns:
         adata object with perturbation matrix in adata.layers['perturbations']
     """
-
     pm = generate_perturbation_matrix(
             adata,
             perturbation_col = perturbation_col,
@@ -158,12 +136,11 @@ def get_perturbation_matrix(
             )
 
     if inplace:
-        adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].values
-        cols = pm.columns.tolist()
-        adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
+        adata.obsm['perturbation'] = pm.loc[adata.obs.index, :].copy()
+        # cols = pm.columns.tolist()
+        # adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
     else:
         return pm.loc[adata.obs.index, :]
-    # return adata
 
 def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print
@@ -187,7 +164,6 @@ def split_compare(label, delim='|', delim2='_', expected_num=2):
 
 
 def split_sort_paste(l, split_delim='_', paste_delim='|'):
-    
     #if type is not series make it so
     if type(l) != pd.Series:
         l = pd.Series(l)
@@ -223,14 +199,53 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
         # Extract row order from dendrogram
         row_order = leaves_list(row_linkage)
         df = df.iloc[row_order]
-        
     return df
 
+def cells_not_normalized(adata):
+    sums = np.array(adata.X.sum(axis=1)).flatten()
+    dev = np.std(sums)
+    return True if dev > 1 else False
+
+def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool):
+    """
+    Compute the "percent change" for each cell against a reference.
+    
+    Parameters:
+    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
+    - perturbed_bool: boolean array indicating which cells are perturbed
+    - gene: gene name
+    - ref_mean: reference mean expression value
+    
+    Returns:
+    - A list of "percent knocked down" for each cell.
+    """
+
+    if gene not in adata.var_names:
+        out = {}
+        out['target_gene_expression'] = np.nan
+        out['target_reference_mean'] = np.nan
+        out['target_reference_std'] = np.nan
+        out['target_pct_change'] = np.nan
+        out['target_zscore'] = np.nan
+        return out
+
+    target_gene_expression = adata[:, gene].X.flatten()
+    reference_target_mean = np.mean(target_gene_expression[ref_bool])
+    reference_target_std = np.std(target_gene_expression[ref_bool])
+
+    out = {}
+    out['target_gene_expression'] = target_gene_expression[perturbed_bool]
+    out['target_reference_mean'] = reference_target_mean
+    out['target_reference_std'] = reference_target_std
+    out['target_pct_change'] = ((target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_mean) * 100
+    out['target_zscore'] = (target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_std
+
+    return out
 
 def calculate_target_change(
     adata,
-    perturbation_column,
-    reference_label,
+    perturbation_column=None,
+    reference_value=None,
     perturbation_gene_map=None,
     check_norm=True,
     quiet=False,
@@ -240,192 +255,95 @@ def calculate_target_change(
     
     Parameters:
     - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbation_column: column in adata.obs indicating the perturbation/knockdown
+    - perturbation_column: column in adata.obs indicating the perturbation/knockdown. If passed, then perturbation matrix is regenerated. Else, looks for adata.obsm['perturbation'].
     - reference_label: label of the reference population in perturbation_column
+    - perturbation_gene_map: dictionary mapping perturbations to genes. If None, then perturbation_column is assumed to be gene names.
+    - check_norm: if True, checks if data is normalized to counts per cell. If not, normalizes.
+    - quiet: if False, prints progress
     
     Returns:
     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
     """
 
-    final_adata = adata
-    
+    final_adata = adata    
     if not quiet: print(f"Computing percent change for '{perturbation_column}' across {adata.shape[0]} cells...")
+
+    #check inputs: 
+    duplicated_genes = adata.var.index.duplicated()
+    if sum(duplicated_genes) > 0:
+        raise ValueError(f"Duplicated gene names found in adata.var.index. Please remove duplicated gene names before running this function. \nGene names found: {list(adata.var.index[duplicated_genes])}")
 
     ##check to see if data is normalized to counts per cell
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
-        sums = np.array(adata.X.sum(axis=1)).flatten()
-        dev = np.std(sums[0:10])
-        if dev > 1:
-            print('Warning: data does not appear to be normalized to counts per cell. Normalizing with sc.pp.normalize_total(). To disable this behavior set check_norm=False.')
-            #copy adata to preserve original object
+        if cells_not_normalized(adata):
+            if not quiet: print('\tData is not normalized to counts per cell. Normalizing...')
             adata = adata.copy()
             sc.pp.normalize_total(adata)
-    
-
         # Loop through cells
     if not quiet: print('\tComputing percent change for each cell...')
 
-    perturbed_inds = adata.obs[perturbation_column] != reference_label
-    padata = adata[perturbed_inds, :] #subset to perturbed cells
+    #convert to numpy if sparse
+    if type(adata.X) == csr_matrix:
+        adata.X = adata.X.toarray()
 
-    # translate perturbation labels to gene names if necessary
-    if perturbation_gene_map is not None:
-        target_genes = np.array([perturbation_gene_map[x] for x in padata.obs[perturbation_column]])
+    #if no perturbation matrix, create one
+    if perturbation_column is not None:
+        if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
+        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False, verbose=not quiet)
+    elif 'perturbation' in adata.obsm.keys():
+        pm = adata.obsm['perturbation']
     else: 
-        target_genes = padata.obs[perturbation_column].values #if no mapping, its assumed that the perturbation directly maps to gene
+        raise ValueError("No perturbation matrix found in adata.obsm. Please provide a perturbation_column or run get_perturbation_matrix first.")
+
+    if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
+
+    #check that the gene a perturbation maps to is actually in adata
+    if perturbation_gene_map is not None:
+        #for now we assume all the perturbations are in the perturbation_gene_map
+        pm.columns = [perturbation_gene_map[x] for x in pm.columns]
     
-    target_gene_set = list(set(target_genes))
-    original_length = len(target_gene_set)
-    if not quiet: print(f"\tFound {original_length} unique perturbations in {perturbation_column} column.")
-    target_gene_set = [x for x in target_gene_set if x in adata.var_names] #remove genes not in adata.var_names
-    if not quiet: print(f"\tRemoved {original_length - len(target_gene_set)} perturbations not found in adata.var_names.")
-
-    # padata.obs['target_gene'] = target_genes
-    target_genes_filter = [x in target_gene_set for x in target_genes]
-    target_genes = target_genes[target_genes_filter]
-    padata = padata[target_genes_filter, target_gene_set] #subset to only target gene and perturbations with measured target genes
-
-    # Get mean expression values for reference population
-    if not quiet: print(f'\tComputing mean expression values for reference population: {reference_label}....')
-    reference_target_means = adata[~perturbed_inds, target_gene_set].X.toarray().mean(axis=0) #compute per gene mean expression for reference population
-    reference_target_stds  = adata[~perturbed_inds, target_gene_set].X.toarray().std(axis=0) #compute per gene stdev for reference population
-
-    # Placeholder for percent knocked down values
-    percent_kds = []
-    zscores = []
-    reference_means = []
-    reference_stds = []
-    target_gene_expression = []
-
-    if not quiet : print(f'\tComputing percent change for {padata.shape[0]} perturbed cells...')
-    for cell, perturb in tqdm(zip(padata.X.toarray(), target_genes), disable=quiet):
-        gene_idx = padata.var_names.get_loc(perturb) # get index of target gene
-
-        percent_value = ((cell[gene_idx]) - (reference_target_means[gene_idx])) / (reference_target_means[gene_idx]) * 100
-        percent_kds.append(percent_value)
-
-        zscore_value = (cell[gene_idx] - reference_target_means[gene_idx]) / reference_target_stds[gene_idx]
-        zscores.append(zscore_value)
-
-        reference_means.append(reference_target_means[gene_idx])
-        reference_stds.append(reference_target_stds[gene_idx])
-        target_gene_expression.append(cell[gene_idx])
+    check = [x in adata.var_names for x in pm.columns]
+    if sum(check) == 0:
+        raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
+    elif sum(check) != len(check):
+        if not quiet: print(f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names.")
     
-    # Add to adata
-    metrics = ['target_pct_change', 'target_zscore', 'target_reference_mean', 'target_reference_std', 'target_gene_expression']
-    for m in metrics:
-        final_adata.obs[m] = np.nan
 
-    final_adata.obs.loc[padata.obs.index, 'target_gene'] = target_genes
-    final_adata.obs.loc[padata.obs.index, 'target_pct_change'] = percent_kds
-    final_adata.obs.loc[padata.obs.index, 'target_zscore'] = zscores
-    final_adata.obs.loc[padata.obs.index, 'target_reference_mean'] = reference_means
-    final_adata.obs.loc[padata.obs.index, 'target_reference_std'] = reference_stds
-    final_adata.obs.loc[padata.obs.index, 'target_gene_expression'] = target_gene_expression
-    return final_adata
-
-############################################################################################################
-##Feature/Guide Calling
-############################################################################################################
-
-import scanpy as sc
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
-
-from sklearn.mixture import GaussianMixture
-from joblib import Parallel, delayed
-
-import glob
-from tqdm import tqdm
-import re
-import os
-import gc
-
-from scipy.sparse import csr_matrix
-
-def norm(x, target=10000):
-    return x / np.sum(x) * target
-
-def log10(x):
-    return np.log10(x + 1)
-
-def gm(x, n_components=2, subset=0.2, subset_minimum=50, nonzero=True, seed=0, **kwargs):
-    """
-    Fits a Gaussian Mixture Model to the input data.
-    Args:
-        x: numpy array of data to fit
-        n_components: number of components to fit. Default 2
-        subset: fraction of data to fit on, this speeds up computation. Default 0.2
-        subset_minimum: minimum number of cells to fit on, if subset is too small. Default 50
-        nonzero: whether to subset the data to only include nonzero values. Default True
-        seed: random seed. Default 0
-    """
+    #reference labels are where pm row sums are 0
+    ref_bool = (pm.sum(axis=1) == 0).values
     
-    if nonzero:
-        dat_in = x[x > 0].reshape(-1,1)
+    zscore_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    pct_change_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    target_gex_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    reference_means = np.zeros(pm.shape[1])
+    reference_stds = np.zeros(pm.shape[1])
+    for i, (prtb, prtb_bool) in tqdm(enumerate(pm.items()), total=pm.shape[1], disable=quiet):
+        prtb_bool = prtb_bool.values
+        out = _get_target_change_single_perturbation(adata, prtb, prtb_bool, ref_bool)
+        pct_change_matr[prtb_bool, i] = out['target_pct_change']
+        zscore_matr[prtb_bool, i] = out['target_zscore']
+        target_gex_matr[prtb_bool, i] = out['target_gene_expression']
+        reference_means[i] = out['target_reference_mean']
+        reference_stds[i] = out['target_reference_std']
+
+    #if cells got more than 1 perturbation, then set these as .obs else 
+    if sum(pm.sum(axis=1) > 1) > 0:
+        if not quiet: print(f"Cells with more than 1 perturbation found. Adding to .obsm...")
+        final_adata.uns['target_reference_mean'] = reference_means
+        final_adata.uns['target_reference_std'] = reference_stds
+        final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
+        final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
+        final_adata.obsm['target_gene_expression'] = pd.DataFrame(target_gex_matr, index=final_adata.obs.index, columns=pm.columns)
     else:
-        dat_in = x
+        if not quiet: print(f"No cells with more than 1 perturbation. Adding to .obs...")
+        final_adata.obs['target_reference_mean'] = reference_means[np.argmax(pm.values, axis=1)]
+        final_adata.obs['target_reference_std'] = reference_stds[np.argmax(pm.values, axis=1)]
 
-    if dat_in.shape[0] < 10:
-        print(f"too few cells ({dat_in.shape[0]}) to run GMM. Returning -1")
-        #return preds of -1
-        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
-
-
-    if subset: #optionally subset the data to fit on only a fraction, this speeds up computation
-        s = min(int(dat_in.shape[0]*subset), subset_minimum)
-        # print(f"subsetting to {subset}. {int(dat_in.shape[0]*subset)} cells of {dat_in.shape[0]}")
-        dat_in = dat_in[np.random.choice(dat_in.shape[0], size=s, replace=False), :]
-
-    try:
-        gmm = GaussianMixture(n_components=n_components, random_state=seed, **kwargs)
-        pred = gmm.fit(dat_in)
-    except:
-        print(f"failed to fit GMM. Returning -1")
-        #return preds of -1
-        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
-    #pred
-    pred = gmm.predict(x)
-    #get max prob
-    probs = gmm.predict_proba(x).max(axis=1)
-
-    #set class 0 as the lower mean, ie '0' is negative for the guide and '1' is positive
-    means = gmm.means_.flatten()
-    if means[0] > means[1]:
-        pred = np.where(pred == 0, 1, 0)
-        probs = 1 - probs
-
-    return pred, probs
-
-def get_pred(x):
-
-    l = log10(x.toarray())
-    out = gm(l.reshape(-1, 1))
-    return out[0]
-
-def call_guides(adata):
-    """
-    Accepts an anndata object with adata.X containing the counts of each guide.
-    In parallel, fits a GMM to each guide and returns the predicted class for each guide.
-    Args:
-        adata: anndata object with adata.X containing the counts of each guide
-    Returns:
-        anndata object with adata.X containing the predicted class for each guide
-    """
-    lil = adata.X.T.tolil()
-    obs = adata.obs.copy()
-    var = adata.var.copy()
-
-    print('Running GMMs...')
-    #add tqdm to results call
-    results = Parallel(n_jobs=1)(delayed(get_pred)(lst) for lst in tqdm(lil))
-
-    guide_calls = sc.AnnData(X=csr_matrix(results).T, obs=obs, var=var)
-    guide_calls.X = guide_calls.X.astype('uint8')
-    return guide_calls
+        # pm = pm.stack()
+        final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_gene_expression'] = target_gex_matr[pm.values]
 
 ############################################################################################################
 ##### Perturbation Similarity Analysis  #####
@@ -563,7 +481,7 @@ def pseudobulk(adata, groupby, **kwargs):
     """
     Function to apply pseudobulk to anndata object
     Args:
-        adata (ad.AnnData): AnnData object with guide calls in adata.obs['guide']
+        adata (sc.AnnData): AnnData object with guide calls in adata.obs['guide']
         groupby (str): column in adata.obs to group by
         **kwargs: arguments to pass to pseudobulk function
     """
