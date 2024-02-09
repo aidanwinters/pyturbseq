@@ -21,7 +21,7 @@ def norm(x, target=10000):
 def log10(x):
     return np.log10(x + 1)
 
-def gm(x, n_components=2, subset=0.2, subset_minimum=50, nonzero=True, seed=0, **kwargs):
+def gm(x, n_components=2, subset=False, subset_minimum=50, nonzero=False, seed=0, **kwargs):
     """
     Fits a Gaussian Mixture Model to the input data.
     Args:
@@ -69,13 +69,13 @@ def gm(x, n_components=2, subset=0.2, subset_minimum=50, nonzero=True, seed=0, *
 
     return pred, probs
 
-def get_pred(x):
+def get_pred(x, **kwargs):
 
     l = log10(x.toarray())
-    out = gm(l.reshape(-1, 1))
+    out = gm(l.reshape(-1, 1), **kwargs)
     return out[0]
 
-def call_guides(adata, n_jobs=1):
+def call_guides(adata, n_jobs=1, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
@@ -90,7 +90,7 @@ def call_guides(adata, n_jobs=1):
 
     print('Running GMMs...')
     #add tqdm to results call
-    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst) for lst in tqdm(lil))
+    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst, **kwargs) for lst in tqdm(lil))
 
     guide_calls = sc.AnnData(X=csr_matrix(results).T, obs=obs, var=var)
     guide_calls.X = guide_calls.X.astype('uint8')
