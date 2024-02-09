@@ -20,7 +20,7 @@ from adpbulk import ADPBulk
 ############# ADATA FILTERING FUNCTIONS ################################################################################
 ########################################################################################################################
 
-def filter_adata(adata, obs_filters=None, var_filters=None):
+def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
     if obs_filters is not None:
         for f in obs_filters:
             adata = adata[adata.obs.query(f).index, :]
@@ -29,6 +29,8 @@ def filter_adata(adata, obs_filters=None, var_filters=None):
         for f in var_filters:
             adata = adata[:, adata.var.query(f).index]
 
+    if copy:
+        return adata.copy()
     return adata
 
 def filter_to_feature_type(

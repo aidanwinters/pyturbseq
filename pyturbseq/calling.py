@@ -75,7 +75,7 @@ def get_pred(x):
     out = gm(l.reshape(-1, 1))
     return out[0]
 
-def call_guides(adata):
+def call_guides(adata, n_jobs=1):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
@@ -90,7 +90,7 @@ def call_guides(adata):
 
     print('Running GMMs...')
     #add tqdm to results call
-    results = Parallel(n_jobs=1)(delayed(get_pred)(lst) for lst in tqdm(lil))
+    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst) for lst in tqdm(lil))
 
     guide_calls = sc.AnnData(X=csr_matrix(results).T, obs=obs, var=var)
     guide_calls.X = guide_calls.X.astype('uint8')
