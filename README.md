@@ -1,4 +1,8 @@
-# pyturbseq
+# pyturbseq  
+Author: Aidan Winters  
+
+### Description
+A python package for processing and analysis of single cell perturbation data.  
 
 ### Install  
 Requires python version between 3.8 and 3.11 
