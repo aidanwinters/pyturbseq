@@ -75,7 +75,7 @@ def get_pred(x, **kwargs):
     out = gm(l.reshape(-1, 1), **kwargs)
     return out[0]
 
-def call_guides(adata, n_jobs=1, **kwargs):
+def call_guides(guides, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
@@ -84,17 +84,26 @@ def call_guides(adata, n_jobs=1, **kwargs):
     Returns:
         anndata object with adata.X containing the predicted class for each guide
     """
-    lil = adata.X.T.tolil()
-    obs = adata.obs.copy()
-    var = adata.var.copy()
+    vp = print if not quiet else lambda *a, **k: None
 
-    print('Running GMMs...')
+    lil = guides.X.T.tolil()
+
+    vp(f'Running GMM with {n_jobs} workers...')
     #add tqdm to results call
-    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst, **kwargs) for lst in tqdm(lil))
+    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst, **kwargs) for lst in tqdm(lil, disable=quiet))
+    called = csr_matrix(results).T.astype('uint8')
 
-    guide_calls = sc.AnnData(X=csr_matrix(results).T, obs=obs, var=var)
-    guide_calls.X = guide_calls.X.astype('uint8')
-    return guide_calls
+    if not inplace:
+        vp(f"Creating copy AnnData object with guide calls...")
+        guides = guides.copy()
+
+    vp(f"Updating AnnData object with guide calls...")
+    guides.layers['calls'] = called
+    guides.obs['num_features'] = called.toarray().sum(axis=1).flatten()
+    guides.obs['feature_call'] = ['|'.join(guides.var_names.values[called[x,:].toarray().flatten() == 1]) for x in range(guides.shape[0])]
+    guides.obs['feature_umi'] = ['|'.join(guides.var_names.values[guides.X[x,:].toarray().flatten() == 1]) for x in range(guides.X.shape[0])]
+    if not inplace:
+        return guides
 
 ########################################################################################################################
 ########################################################################################################################

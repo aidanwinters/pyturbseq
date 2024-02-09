@@ -148,8 +148,7 @@ def split_sort_trim(label, delim='|', delim2='_'):
     #if not string then print
     if type(label) != str:
         return None
-    vals = [x.split(delim2)[0] for x in label.split(delim)]
-    vals.sort()
+    vals = np.sort([x.split(delim2)[0] for x in label.split(delim)])
     return delim.join(vals)
 
 def split_compare(label, delim='|', delim2='_', expected_num=2):
