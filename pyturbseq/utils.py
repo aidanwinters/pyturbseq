@@ -82,17 +82,14 @@ def generate_perturbation_matrix(
         if verbose:
             print(f"Found {len(feature_list)} unique features.")
 
-
     if reference_value not in feature_list:
         raise ValueError(f"Trying to pass 'reference_value' of '{reference_value}' to 'generate_perturbation_matrix' but not found in feature list")
-
-    if not keep_ref:
-        feature_list = feature_list[feature_list != reference_value]
 
     #create a matrix of zeros with the shape of the number of cells and number of features
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
     #build dicitonary mapping feature to columns index
     feature_dict = dict(zip(feature_list, range(len(feature_list))))
+    print(feature_dict)
 
     #for each cell, split the feature call column by the delimiter and add 1 to the index of the feature in the feature list
     counter = 0
@@ -102,7 +99,11 @@ def generate_perturbation_matrix(
         except:
             counter += 1
 
-    if set_ref_1 and keep_ref:
+    if not keep_ref:
+        ##remove featutre ref from matrix
+        perturbation_matrix = np.delete(perturbation_matrix, feature_dict[reference_value], axis=1)
+        feature_list = feature_list[feature_list != reference_value]
+    elif set_ref_1 and keep_ref:
         perturbation_matrix[:, feature_dict[reference_value]] = 1
 
     if return_boolean:
@@ -228,11 +229,12 @@ def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool
         out['target_reference_std'] = np.nan
         out['target_pct_change'] = np.nan
         out['target_zscore'] = np.nan
+        out['target_log2fc'] = np.nan
         return out
 
     target_gene_expression = adata[:, gene].X.flatten()
-    reference_target_mean = np.mean(target_gene_expression[ref_bool])
-    reference_target_std = np.std(target_gene_expression[ref_bool])
+    reference_target_mean = float(np.mean(target_gene_expression[ref_bool]))
+    reference_target_std = float(np.std(target_gene_expression[ref_bool]))
 
     out = {}
     out['target_gene_expression'] = target_gene_expression[perturbed_bool]
@@ -240,6 +242,7 @@ def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool
     out['target_reference_std'] = reference_target_std
     out['target_pct_change'] = ((target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_mean) * 100
     out['target_zscore'] = (target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_std
+    out['target_log2fc'] = np.log2((target_gene_expression[perturbed_bool] + 1) / (reference_target_mean+1))
 
     return out
 
@@ -316,6 +319,7 @@ def calculate_target_change(
     
     zscore_matr = np.zeros((adata.shape[0], pm.shape[1]))
     pct_change_matr = np.zeros((adata.shape[0], pm.shape[1]))
+    log2fc_matr = np.zeros((adata.shape[0], pm.shape[1]))
     target_gex_matr = np.zeros((adata.shape[0], pm.shape[1]))
     reference_means = np.zeros(pm.shape[1])
     reference_stds = np.zeros(pm.shape[1])
@@ -324,6 +328,7 @@ def calculate_target_change(
         out = _get_target_change_single_perturbation(adata, prtb, prtb_bool, ref_bool)
         pct_change_matr[prtb_bool, i] = out['target_pct_change']
         zscore_matr[prtb_bool, i] = out['target_zscore']
+        log2fc_matr[prtb_bool, i] = out['target_log2fc']
         target_gex_matr[prtb_bool, i] = out['target_gene_expression']
         reference_means[i] = out['target_reference_mean']
         reference_stds[i] = out['target_reference_std']
@@ -335,6 +340,7 @@ def calculate_target_change(
         final_adata.uns['target_reference_std'] = reference_stds
         final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
+        final_adata.obsm['target_log2fc'] = pd.DataFrame(log2fc_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_gene_expression'] = pd.DataFrame(target_gex_matr, index=final_adata.obs.index, columns=pm.columns)
     else:
         if not quiet: print(f"No cells with more than 1 perturbation. Adding to .obs...")
@@ -344,6 +350,7 @@ def calculate_target_change(
         # pm = pm.stack()
         final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_log2fc'] = log2fc_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_gene_expression'] = target_gex_matr[pm.values]
 
 ############################################################################################################

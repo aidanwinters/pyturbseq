@@ -33,9 +33,12 @@ def parse_h5(
     
     ##add each capture group to adata.obs
     match = re.search(pattern, rna_file)
-    for key, value in match.groupdict().items():
-        vp(f"Adding {key} = {value}")
-        adata.obs[key] = value
+    if match is None:
+        raise ValueError(f"Could not extract metadata from {adata_path}")
+    else:
+        for key, value in match.groupdict().items():
+            vp(f"Adding {key} = {value}")
+            adata.obs[key] = value
 
     ##Read in guide calls: 
     if add_guide_calls:
