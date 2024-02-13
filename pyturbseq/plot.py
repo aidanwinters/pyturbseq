@@ -267,14 +267,17 @@ def plot_top2ratio_counts(guides, show=False):
 
 #plot guide call numbers as proportion of all cells
         ## plot num features
-def plot_guide_proportions(guides, show=False):
+def plot_num_features(guides, show=False, ax =None, **kwargs):
     vc = guides.obs['num_features'].value_counts()
     vc = vc.sort_index()
     vc = vc/vc.sum() * 100
 
-    sns.barplot(data=vc.reset_index(),x='num_features', y='count')
-    plt.xlabel('# sgRNA calls per cell')
-    plt.ylabel('% of all cells')
-    plt.title('Guide calls per cell')
+    if ax is None:
+        fig, ax = plt.subplots(1,1)
+    sns.barplot(data=vc.reset_index(),x='num_features', y='count', ax=ax, **kwargs)
+    ax.set_xlabel('# feature calls per cell')
+    ax.set_ylabel('% of all cells')
     if show:
         plt.show()
+    
+    return ax

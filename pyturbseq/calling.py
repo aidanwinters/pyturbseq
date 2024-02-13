@@ -15,13 +15,8 @@ from tqdm import tqdm
 
 from scipy.sparse import csr_matrix
 
-def norm(x, target=10000):
-    return x / np.sum(x) * target
 
-def log10(x):
-    return np.log10(x + 1)
-
-def gm(x, n_components=2, subset=False, subset_minimum=50, nonzero=False, seed=0, **kwargs):
+def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, seed=99, **kwargs):
     """
     Fits a Gaussian Mixture Model to the input data.
     Args:
@@ -33,77 +28,69 @@ def gm(x, n_components=2, subset=False, subset_minimum=50, nonzero=False, seed=0
         seed: random seed. Default 0
     """
     
+    counts = counts.reshape(-1, 1)
+
     if nonzero:
-        dat_in = x[x > 0].reshape(-1,1)
-    else:
-        dat_in = x
+        counts = counts[counts > 0].reshape(-1,1)
 
-    if dat_in.shape[0] < 10:
-        print(f"too few cells ({dat_in.shape[0]}) to run GMM. Returning -1")
+    counts = np.log10(counts + 1)
+
+    if counts.shape[0] < 10:
+        print(f"too few cells ({counts.shape[0]}) to run GMM. Returning -1")
         #return preds of -1
-        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
-
+        return np.repeat(-1, counts.shape[0]), np.repeat(-1, counts.shape[0])
 
     if subset: #optionally subset the data to fit on only a fraction, this speeds up computation
-        s = min(int(dat_in.shape[0]*subset), subset_minimum)
+        s = min(int(counts.shape[0]*subset), subset_minimum)
         # print(f"subsetting to {subset}. {int(dat_in.shape[0]*subset)} cells of {dat_in.shape[0]}")
-        dat_in = dat_in[np.random.choice(dat_in.shape[0], size=s, replace=False), :]
+        counts = counts[np.random.choice(counts.shape[0], size=s, replace=False), :]
 
     try:
-        gmm = GaussianMixture(n_components=n_components, random_state=seed, **kwargs)
-        pred = gmm.fit(dat_in)
+        gmm = GaussianMixture(n_components=n_components, random_state=seed, covariance_type="tied", n_init=3, **kwargs)
+        pred = gmm.fit(counts)
     except:
         print(f"failed to fit GMM. Returning -1")
         #return preds of -1
-        return np.repeat(-1, x.shape[0]), np.repeat(-1, x.shape[0])
-    #pred
-    pred = gmm.predict(x)
-    #get max prob
-    probs = gmm.predict_proba(x).max(axis=1)
+        return np.repeat(-1, counts.shape[0]), np.repeat(-1, counts.shape[0])
 
-    #set class 0 as the lower mean, ie '0' is negative for the guide and '1' is positive
+    #get probability per class
+    probs = gmm.predict_proba(counts)
+    #get probability for the 'postitive'
     means = gmm.means_.flatten()
-    if means[0] > means[1]:
-        pred = np.where(pred == 0, 1, 0)
-        probs = 1 - probs
+    positive = np.argmax(means)
+    probs_positive = probs[:,positive]
 
-    return pred, probs
+    return probs_positive > prob_threshold #return confident (ie above threshold) positive calls
 
-def get_pred(x, **kwargs):
-
-    l = log10(x.toarray())
-    out = gm(l.reshape(-1, 1), **kwargs)
-    return out[0]
-
-def call_guides(guides, n_jobs=1, inplace=True, quiet=True, **kwargs):
+def call_features(features, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
     Args:
-        adata: anndata object with adata.X containing the counts of each guide
+        features: anndata object with adata.X containing the counts of each guide
     Returns:
         anndata object with adata.X containing the predicted class for each guide
     """
     vp = print if not quiet else lambda *a, **k: None
 
-    lil = guides.X.T.tolil()
+    lil = features.X.T.tolil()
 
     vp(f'Running GMM with {n_jobs} workers...')
     #add tqdm to results call
-    results = Parallel(n_jobs=n_jobs)(delayed(get_pred)(lst, **kwargs) for lst in tqdm(lil, disable=quiet))
+    results = Parallel(n_jobs=n_jobs)(delayed(gm)(lst.toarray(), **kwargs) for lst in tqdm(lil, disable=quiet))
     called = csr_matrix(results).T.astype('uint8')
 
     if not inplace:
         vp(f"Creating copy AnnData object with guide calls...")
-        guides = guides.copy()
+        features = features.copy()
 
     vp(f"Updating AnnData object with guide calls...")
-    guides.layers['calls'] = called
-    guides.obs['num_features'] = called.toarray().sum(axis=1).flatten()
-    guides.obs['feature_call'] = ['|'.join(guides.var_names.values[called[x,:].toarray().flatten() == 1]) for x in range(guides.shape[0])]
-    guides.obs['feature_umi'] = ['|'.join(guides.var_names.values[guides.X[x,:].toarray().flatten() == 1]) for x in range(guides.X.shape[0])]
+    features.layers['calls'] = called
+    features.obs['num_features'] = called.toarray().sum(axis=1).flatten()
+    features.obs['feature_call'] = ['|'.join(features.var_names.values[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
+    features.obs['feature_umi'] = ['|'.join(features.var_names.values[features.X[x,:].toarray().flatten() == 1]) for x in range(features.X.shape[0])]
     if not inplace:
-        return guides
+        return features
 
 ########################################################################################################################
 ########################################################################################################################
