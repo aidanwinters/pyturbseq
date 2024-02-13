@@ -234,41 +234,50 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
 ##########################################################################
 
 #plot guide call proportions
-def plot_guide_count_metrics(guides, show=False):
+def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(1,1)
 
-    sns.scatterplot(data = guides.var, y = 'pct_cells_with_guide', x = 'log10_total_counts', hue='ntc')
+    sns.scatterplot(data = features.var, y = 'pct_cells_with_guide', x = 'log10_total_counts', hue=ntc_var, ax=ax)
     # uniform coverage expectation
-    unif = (1/guides.var.query('ntc == False').shape[0])/2
-    plt.axhline(unif, color='r', linestyle='--')
+    if ntc_var in features.var.columns:
+        unif = (1/features.var.query(f'{ntc_var} == False').shape[0])/2
+        ax.axhline(unif, color='r', linestyle='--')
     #add label to axhline
-    plt.text(5.5, unif, 'Expected %', ha='right', va='bottom', color='r')
-    plt.xlabel('log10(total counts/guide)')
-    plt.ylabel('% cells with guide')
-    plt.ylim(0,0.2)
+        xmax = ax.get_xlim()[1]
+        ax.text(xmax, unif, 'Expected %', ha='right', va='bottom', color='r')
+        ax.legend(title='Negative Control')
+    ax.set_xlabel('log10(total counts/guide)')
+    ax.set_ylabel('% cells with guide')
+    ax.set_ylim(0,0.2)
     #change y ticks to be multiplied by 100
-    plt.yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])
-    plt.legend(title='Negative Control')
+    ax.set_yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])
     if show: 
         plt.show()
+
+    return ax
 
 
 
 ## plot ratio of top 2 against counts: 
-def plot_top2ratio_counts(guides, show=False):
+def plot_top2ratio_counts(features, show=False):
         #plot QC for guide metrics
-    g = sns.jointplot(data = guides.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
+
+    g = sns.jointplot(data = features.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
     g.ax_joint.set_ylabel('log10(total counts/cell)')
     g.ax_joint.set_xlabel('log2(2nd top sgRNA / top sgRNA)')
     g.fig.suptitle('Cell level metrics')
     g.fig.tight_layout()
     if show:
         plt.show()
+
+    return g
     
 
 #plot guide call numbers as proportion of all cells
         ## plot num features
-def plot_num_features(guides, show=False, ax =None, **kwargs):
-    vc = guides.obs['num_features'].value_counts()
+def plot_num_features(features, show=False, ax =None, **kwargs):
+    vc = features.obs['num_features'].value_counts()
     vc = vc.sort_index()
     vc = vc/vc.sum() * 100
 
