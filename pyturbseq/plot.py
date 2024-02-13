@@ -226,3 +226,55 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
     ax.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
     if show:
         plt.show()
+
+
+
+
+### guide plotting
+##########################################################################
+
+#plot guide call proportions
+def plot_guide_count_metrics(guides, show=False):
+
+    sns.scatterplot(data = guides.var, y = 'pct_cells_with_guide', x = 'log10_total_counts', hue='ntc')
+    # uniform coverage expectation
+    unif = (1/guides.var.query('ntc == False').shape[0])/2
+    plt.axhline(unif, color='r', linestyle='--')
+    #add label to axhline
+    plt.text(5.5, unif, 'Expected %', ha='right', va='bottom', color='r')
+    plt.xlabel('log10(total counts/guide)')
+    plt.ylabel('% cells with guide')
+    plt.ylim(0,0.2)
+    #change y ticks to be multiplied by 100
+    plt.yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])
+    plt.legend(title='Negative Control')
+    if show: 
+        plt.show()
+
+
+
+## plot ratio of top 2 against counts: 
+def plot_top2ratio_counts(guides, show=False):
+        #plot QC for guide metrics
+    g = sns.jointplot(data = guides.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
+    g.ax_joint.set_ylabel('log10(total counts/cell)')
+    g.ax_joint.set_xlabel('log2(2nd top sgRNA / top sgRNA)')
+    g.fig.suptitle('Cell level metrics')
+    g.fig.tight_layout()
+    if show:
+        plt.show()
+    
+
+#plot guide call numbers as proportion of all cells
+        ## plot num features
+def plot_guide_proportions(guides, show=False):
+    vc = guides.obs['num_features'].value_counts()
+    vc = vc.sort_index()
+    vc = vc/vc.sum() * 100
+
+    sns.barplot(data=vc.reset_index(),x='num_features', y='count')
+    plt.xlabel('# sgRNA calls per cell')
+    plt.ylabel('% of all cells')
+    plt.title('Guide calls per cell')
+    if show:
+        plt.show()
