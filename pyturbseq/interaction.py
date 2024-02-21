@@ -230,7 +230,6 @@ def run_permutation(X, y, alpha=0.005, l1_ratio=0.5, seed=1000):
     model.fit(X, y_permuted)
     return model.coef_
 
-
 def get_model(
     adata,
     double,
@@ -434,6 +433,11 @@ def get_model(
 #   for coefficients (including the interaciton term) with lowly expressed genes that had a consistent decrease compared to reference
 
 
+from joblib import Parallel, delayed
+import statsmodels.formula.api as smf
+import statsmodels.api as sm
+
+
 def estimate_alpha_empirical(y):
     mean_y = np.mean(y)
     var_y = np.var(y, ddof=1)
@@ -519,6 +523,7 @@ def get_model_wNTC(
     perturbation_col="perturbation",
     reference="NTC",
     delim="|",
+    use_perturbation_matrix=False,
     num_perturbations=None,
     method="robust",
     eps=1e-250,
@@ -578,15 +583,18 @@ def get_model_wNTC(
     data = adata[adata.obs[perturbation_col].isin(perturbations), target]
 
     # get indicators and convert to integer
-    indicators = get_perturbation_matrix(
-        data,
-        perturbation_col=perturbation_col,
-        reference_value=reference,
-        inplace=False,
-        keep_ref=True,
-        set_ref_1=True,
-        verbose=not quiet,
-    ).astype(int)
+    if use_perturbation_matrix:
+        indicators = adata.obsm['perturbation'].astype(int) #assumes that an appropriate perturbation matrix is in the adata
+    else:
+        indicators = get_perturbation_matrix(
+            data,
+            perturbation_col=perturbation_col,
+            reference_value=reference,
+            inplace=False,
+            keep_ref=True,
+            set_ref_1=True,
+            verbose=not quiet,
+        ).astype(int)
 
     # ensure they are in the expected order
     indicators = indicators.loc[:, s]

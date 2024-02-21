@@ -233,6 +233,22 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
 ### guide plotting
 ##########################################################################
 
+
+
+## plot ratio of top 2 against counts: 
+def plot_top2ratio_counts(features, show=False):
+        #plot QC for guide metrics
+    g = sns.jointplot(data = features.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
+    g.ax_joint.set_ylabel('log10(total counts/cell)')
+    g.ax_joint.set_xlabel('log2(2nd top sgRNA / top sgRNA)')
+    g.fig.suptitle('Cell level metrics')
+    g.fig.tight_layout()
+    if show:
+        plt.show()
+
+    return g
+    
+
 #plot guide call proportions
 def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
     if ax is None:
@@ -254,25 +270,7 @@ def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
     ax.set_yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])
     if show: 
         plt.show()
-
     return ax
-
-
-
-## plot ratio of top 2 against counts: 
-def plot_top2ratio_counts(features, show=False):
-        #plot QC for guide metrics
-
-    g = sns.jointplot(data = features.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
-    g.ax_joint.set_ylabel('log10(total counts/cell)')
-    g.ax_joint.set_xlabel('log2(2nd top sgRNA / top sgRNA)')
-    g.fig.suptitle('Cell level metrics')
-    g.fig.tight_layout()
-    if show:
-        plt.show()
-
-    return g
-    
 
 #plot guide call numbers as proportion of all cells
         ## plot num features

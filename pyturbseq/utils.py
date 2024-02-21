@@ -89,7 +89,6 @@ def generate_perturbation_matrix(
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
     #build dicitonary mapping feature to columns index
     feature_dict = dict(zip(feature_list, range(len(feature_list))))
-    print(feature_dict)
 
     #for each cell, split the feature call column by the delimiter and add 1 to the index of the feature in the feature list
     counter = 0
