@@ -584,7 +584,7 @@ def get_model_wNTC(
 
     # get indicators and convert to integer
     if use_perturbation_matrix:
-        indicators = adata.obsm['perturbation'].astype(int) #assumes that an appropriate perturbation matrix is in the adata
+        indicators = data.obsm['perturbation'].astype(int) #assumes that an appropriate perturbation matrix is in the adata
     else:
         indicators = get_perturbation_matrix(
             data,
