@@ -687,7 +687,7 @@ def get_model_wNTC(
         vp("\tGetting prediction without interaction effect...")
         indicators_only = indicators.loc[:, s]
         # get prediction without using the last indicator (ie the combo perturbation) or last coefficient (ie the interaction term)
-        Z_noInteraction = indicators_only.values @ regr_fit.params[:-1]
+        Z_noInteraction = indicators_only.values @ regr_fit.params[0:(num_perturbations + 1)]
         # multiply the indicators without the last column
         combo_term = pert2term[combo_perturbation]
         combo_inds = data.obs[perturbation_col] == combo_perturbation
@@ -698,27 +698,23 @@ def get_model_wNTC(
             np.median(Z_noInteraction[combo_inds])
         )
 
-        if num_perturbations == 2:
-            # for now add a manual
-            Z_noInteraction_AW = (
+        if num_perturbations == 3:
+            Z_noTripleInteraction_AW = (
                 (indicators[s[0]] * out["coef_ref"])
                 + (indicators[s[1]] * out["coef_a"])
                 + (indicators[s[2]] * out["coef_b"])
-            )
-            Z_AW = (
-                (indicators[s[0]] * out["coef_ref"])
-                + (indicators[s[1]] * out["coef_a"])
-                + (indicators[s[2]] * out["coef_b"])
+                + (indicators[s[3]] * out["coef_c"])
                 + (indicators[s[1]] * indicators[s[2]] * out["coef_ab"])
+                + (indicators[s[1]] * indicators[s[3]] * out["coef_ac"])
+                + (indicators[s[2]] * indicators[s[3]] * out["coef_bc"])
             )
-            out["predicted_mean_no_interaction_AW"] = float(
-                np.mean(Z_noInteraction_AW[combo_inds])
+
+            out["predicted_mean_no_triple_interaction_AW"] = float(
+                np.mean(Z_noTripleInteraction_AW[combo_inds])
             )
-            out["predict_mean_AW"] = float(np.mean(Z_AW[combo_inds]))
 
         if plot:
             fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-
             sns.boxplot(
                 x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations
             )

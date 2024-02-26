@@ -80,13 +80,15 @@ def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n
 
     def get_deg_worker(condition):
         try:
-            return get_degs(
+            df = get_degs(
                 adata[adata.obs[design_col].isin([condition, reference])],
                 design_col,
                 ref_val=reference,
                 n_cpus=n_cpus,
                 quiet=quiet
-            )
+                )
+            df['condition'] = condition
+            return df
         except Exception as e:
             print(f"Exception in DESeq2 execution: {e}")
             return pd.DataFrame()
