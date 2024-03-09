@@ -44,7 +44,7 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
         alt_val = [x for x in design_vals if x != ref_val]
         if len(alt_val) > 1:
             raise ValueError(f"More than one alternative value for {design_col} in adata. This is currently not supported.")
-        contrast = [design_col, alt_val[0], ref_val]
+        contrast = [design_col, ref_val, alt_val[0]]
 
     # Running the statistical analysis
     stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)

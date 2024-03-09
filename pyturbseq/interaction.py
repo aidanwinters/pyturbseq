@@ -475,14 +475,9 @@ def breakdown_double_wRef(input_str, ref="control", delim="|"):
     return term2pert, pert2term, split
 
 
-def breakdown_triple_wRef(input_str, third_pos="css", ref="control", delim="|"):
+def breakdown_triple_wRef(input_str,  ref="control", delim="|"):
     split = input_str.split(delim)
     # confirm third pos is in split and if so make sure at the end
-    if third_pos in split:
-        split.remove(third_pos)
-        split.append(third_pos)
-    else:
-        raise ValueError(f"third_pos {third_pos} not in split {split}")
     term2pert = {}
     term2pert["ref"] = delim.join([ref] * 3)
     term2pert["a"] = split[0] + delim + ref + delim + ref
