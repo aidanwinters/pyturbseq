@@ -498,3 +498,72 @@ def pseudobulk(adata, groupby, **kwargs):
     adata = sc.AnnData(pseudobulk_matrix, obs=sample_meta, var=adata.var)
 
     return adata
+
+
+##############################################################################################################################
+############## DOWNSAMPLE AND SUBSAMPLE FUNCTIONS ############################################################################
+##############################################################################################################################
+
+#randonly select N cells from each label in column
+def subsample_on_covariate(adata, column, num_cells=100, copy=True):
+
+    #set num_cells to minimum of all groups
+    num_cells = min(min(adata.obs[column].value_counts()), num_cells)
+    print(num_cells)
+
+    #get the indices of the cells
+    inds = []
+    for group in adata.obs[column].unique():
+        inds.extend(np.random.choice(adata.obs[adata.obs[column] == group].index, num_cells, replace=False))
+
+    if copy:
+        return adata[inds, :].copy()
+    else:
+        return adata[inds, :]
+
+
+def subsample_on_multiple_covariates(adata, columns, num_cells=100, min_cols=None, copy=True):
+    """
+    Subsamples the AnnData object based on multiple covariates.
+    
+    Parameters:
+    - adata: AnnData object
+    - columns: list of columns to subsample on
+    - num_cells: target number of cells to subsample per group combination
+    - min_cols: the columns to calculate the minimum count for each group within this column
+    - copy: whether to return a copy of the subsampled AnnData object
+    
+    Returns:
+    - Subsampled AnnData object
+    """
+
+    #check to make sure index names are unique
+    assert len(adata.obs.index) == len(set(adata.obs.index)), 'Index names are not unique'
+    
+    # Initialize DataFrame to track group sizes
+    group_sizes = pd.DataFrame(adata.obs, columns=columns)
+    
+    # Calculate group sizes for combinations of covariates
+    group_sizes = group_sizes.groupby(columns).size().reset_index(name='count')
+    
+     # If a minimum column is specified, calculate the minimum count for each group within this column
+    if min_cols:
+        #get the covariate that are not in min_cols
+        other_cols = [col for col in columns if col not in min_cols]
+        min_counts = group_sizes.groupby(other_cols).agg({'count': 'min'}).reset_index()
+        group_sizes = pd.merge(group_sizes[group_sizes.columns[:-1]], min_counts, on=other_cols, how='left')
+        print(group_sizes.sort_values(other_cols))
+    group_sizes['count'] = group_sizes['count'].apply(lambda x: min(x, num_cells))
+    
+    # Sample indices from each group
+    inds = []
+    for _, row in group_sizes.iterrows():
+        filter_condition = (adata.obs[columns] == row[columns]).all(axis=1)
+        eligible_indices = adata.obs[filter_condition].index
+        sampled_indices = np.random.choice(eligible_indices, int(row['count']), replace=False)
+        inds.extend(sampled_indices)
+    
+    if copy:
+        return adata[inds, :].copy()
+    else:
+        return adata[inds, :]

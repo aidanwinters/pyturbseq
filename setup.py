@@ -25,7 +25,7 @@ setup(
         'tqdm',
         'fastcluster',
         'adjusttext',
-        'pydeseq2==0.4.1',
+        'pydeseq2',
         'statsmodels==0.13.5',
         'adpbulk',
         'anndata',

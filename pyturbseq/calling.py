@@ -62,7 +62,7 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
 
     return probs_positive > prob_threshold #return confident (ie above threshold) positive calls
 
-def call_features(features, n_jobs=1, inplace=True, quiet=True, **kwargs):
+def call_features(features, feature_type=None, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
@@ -72,6 +72,12 @@ def call_features(features, n_jobs=1, inplace=True, quiet=True, **kwargs):
         anndata object with adata.X containing the predicted class for each guide
     """
     vp = print if not quiet else lambda *a, **k: None
+
+    if feature_type is not None:
+        #confirm feature type is in var['feature_type']
+        vp(f"Subsetting features to {feature_type}...")
+        assert feature_type in features.var['feature_type'].unique(), f"feature_type {feature_type} not found in var['feature_type']"
+        features = features[:,features.var.index[features.var[feature_type] == feature_type]]
 
     lil = features.X.T.tolil()
 
