@@ -3,9 +3,11 @@ from tqdm import tqdm
 import pandas as pd
 from pydeseq2.dds import DeseqDataSet
 from pydeseq2.ds import DeseqStats
+from pydeseq2.default_inference import DefaultInference
 from statsmodels.stats.multitest import multipletests
 import numpy as np
 import multiprocessing
+import math
 
 from joblib import Parallel, delayed
 
@@ -24,6 +26,10 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
     Returns:
     pd.DataFrame: DataFrame containing DESeq2 results.
     """
+
+    ref_level = [design_col, ref_val] if ref_val is not None else None
+
+    inference = DefaultInference(n_cpus=n_cpus)
     dds = DeseqDataSet(
         counts=pd.DataFrame(
             adata.X.toarray() if type(adata.X) is not np.ndarray else adata.X,
@@ -31,7 +37,11 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
         ),
         metadata=adata.obs,
         design_factors=design_col,
-        n_cpus=n_cpus,
+        inference=inference,
+        min_replicates=math.inf, 
+        min_mu=1e-6,
+        ref_level=ref_level,
+        refit_cooks=True,
         quiet=quiet,  # Passing the quiet argument
     )
 
@@ -40,14 +50,9 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
     if ref_val is None:
         contrast = [design_col] + list(adata.obs[design_col].unique())
     else:
-        design_vals = adata.obs[design_col].unique()
-        alt_val = [x for x in design_vals if x != ref_val]
-        if len(alt_val) > 1:
-            raise ValueError(f"More than one alternative value for {design_col} in adata. This is currently not supported.")
-        contrast = [design_col, ref_val, alt_val[0]]
-
-    # Running the statistical analysis
-    stat_res = DeseqStats(dds, contrast=contrast, n_cpus=n_cpus, quiet=quiet)
+        contrast=None
+        
+    stat_res = DeseqStats(dds, contrast=contrast, quiet=quiet, inference=inference)
     stat_res.summary()
 
     df = stat_res.results_df
