@@ -21,6 +21,9 @@ from adpbulk import ADPBulk
 ########################################################################################################################
 
 def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
+    
+    if copy: 
+        adata = adata.copy()
     if obs_filters is not None:
         for f in obs_filters:
             adata = adata[adata.obs.query(f).index, :]
@@ -29,8 +32,6 @@ def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
         for f in var_filters:
             adata = adata[:, adata.var.query(f).index]
 
-    if copy:
-        return adata.copy()
     return adata
 
 def filter_to_feature_type(
@@ -252,6 +253,7 @@ def calculate_target_change(
     perturbation_gene_map=None,
     check_norm=True,
     quiet=False,
+    inplace = True,
     ):
     """
     Compute the "percent change" for each cell against a reference.
@@ -268,7 +270,10 @@ def calculate_target_change(
     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
     """
 
-    final_adata = adata    
+    if not inplace:
+        final_adata = adata.copy()   
+    else: 
+        final_adata = adata
     if not quiet: print(f"Computing percent change for '{perturbation_column}' across {adata.shape[0]} cells...")
 
     #check inputs: 
@@ -351,6 +356,9 @@ def calculate_target_change(
         final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_log2fc'] = log2fc_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_gene_expression'] = target_gex_matr[pm.values]
+
+    if not inplace: 
+        return final_adata
 
 ############################################################################################################
 ##### Perturbation Similarity Analysis  #####

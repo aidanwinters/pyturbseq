@@ -16,7 +16,7 @@ from tqdm import tqdm
 from scipy.sparse import csr_matrix
 
 
-def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, seed=99, **kwargs):
+def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, calling_min_count=1, seed=99, **kwargs):
     """
     Fits a Gaussian Mixture Model to the input data.
     Args:
@@ -33,10 +33,15 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
     if nonzero:
         counts = counts[counts > 0].reshape(-1,1)
 
+    if counts.max() < calling_min_count:
+        print(f"max count ({counts.max()}) is less than calling_min_count ({calling_min_count}). Returning no calls.")
+        #return preds of -1
+        return np.repeat(0, counts.shape[0])
+
     counts = np.log10(counts + 1)
 
     if counts.shape[0] < 10:
-        print(f"too few cells ({counts.shape[0]}) to run GMM. Returning -1")
+        print(f"too few cells ({counts.shape[0]}) to run GMM. Returning no calls.")
         #return preds of -1
         return np.repeat(-1, counts.shape[0]), np.repeat(-1, counts.shape[0])
 
@@ -46,7 +51,7 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
         counts = counts[np.random.choice(counts.shape[0], size=s, replace=False), :]
 
     try:
-        gmm = GaussianMixture(n_components=n_components, random_state=seed, covariance_type="tied", n_init=3, **kwargs)
+        gmm = GaussianMixture(n_components=n_components, random_state=seed, covariance_type="tied", n_init=5, **kwargs)
         pred = gmm.fit(counts)
     except:
         print(f"failed to fit GMM. Returning -1")
@@ -62,7 +67,7 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
 
     return probs_positive > prob_threshold #return confident (ie above threshold) positive calls
 
-def call_features(features, feature_type=None, n_jobs=1, inplace=True, quiet=True, **kwargs):
+def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
@@ -76,25 +81,60 @@ def call_features(features, feature_type=None, n_jobs=1, inplace=True, quiet=Tru
     if feature_type is not None:
         #confirm feature type is in var['feature_type']
         vp(f"Subsetting features to {feature_type}...")
-        assert feature_type in features.var['feature_type'].unique(), f"feature_type {feature_type} not found in var['feature_type']"
-        features = features[:,features.var.index[features.var[feature_type] == feature_type]]
-
-    lil = features.X.T.tolil()
+        assert feature_type in features.var['feature_types'].unique(), f"feature_type {feature_type} not found in var['feature_types']"
+        feature_list = features.var.index[features.var['feature_types'] == feature_type]
+        lil = features[:,features.var.index[features.var['feature_types'] == feature_type]].X.T.tolil()
+    else:
+        feature_list = features.var.index
+        lil = features.X.T.tolil()
 
     vp(f'Running GMM with {n_jobs} workers...')
     #add tqdm to results call
     results = Parallel(n_jobs=n_jobs)(delayed(gm)(lst.toarray(), **kwargs) for lst in tqdm(lil, disable=quiet))
     called = csr_matrix(results).T.astype('uint8')
 
+    # Remove calls for features that do not pass threshold (indicating issue with that guide)
+
     if not inplace:
         vp(f"Creating copy AnnData object with guide calls...")
         features = features.copy()
 
     vp(f"Updating AnnData object with guide calls...")
-    features.layers['calls'] = called
+    features.obsm['calls'] = called
+    features.uns['features'] = feature_list
     features.obs['num_features'] = called.toarray().sum(axis=1).flatten()
-    features.obs['feature_call'] = ['|'.join(features.var_names.values[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
-    features.obs['feature_umi'] = ['|'.join(features.var_names.values[features.X[x,:].toarray().flatten() == 1]) for x in range(features.X.shape[0])]
+    features.obs['feature_call'] = ['|'.join(feature_list[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
+    features.obs['feature_umi'] = ['|'.join(features[x,feature_list].X.toarray().astype('int').astype('str').flatten()) for x in range(features.X.shape[0])]
+    if not inplace:
+        return features
+
+
+
+def calculate_feature_call_metrics(features, feature_type='CRISPR Guide Capture', inplace=True, quiet=False):
+    vp = print if not quiet else lambda *a, **k: None
+
+    if feature_type is not None:
+        features_subset = features[:,features.var.index[features.var['feature_types'] == feature_type]]
+
+    if not inplace:
+        vp(f"Creating copy AnnData object with guide calls...")
+        features = features.copy()
+
+    features.obs['total_feature_counts'] = features_subset.X.sum(axis=1)
+    features.obs['proportion_counts_in_top_feature'] = features_subset.X.max(axis=1).toarray().flatten() / features.obs['total_feature_counts'].values
+
+    x_sorted = features_subset.X.toarray().argsort(axis=1)
+    features.obs['ratio_2nd_1st_feature'] = (x_sorted[:,-2]+1) / (x_sorted[:,-1]+1)
+    features.obs['log2_ratio_2nd_1st_feature'] = np.log2(features.obs['ratio_2nd_1st_feature'])
+
+    features.obs['log1p_total_feature_counts'] = np.log1p(features_subset.X.sum(axis=1))
+    features.obs['log10_total_feature_counts'] = np.log10(features_subset.X.sum(axis=1)+1)
+
+    # features.var['total_counts'] = features_subset.X.toarray().sum(axis=0)
+    # features.var['log1p_total_counts'] = np.log1p(features.var['total_counts'])
+    # features.var['log10_total_counts'] = np.log10(features.var['total_counts'])
+    # features.var['pct_cells_with_feature'] = (features_subset.X > 0).toarray().sum(axis=0) / adata.X.shape[0]
+
     if not inplace:
         return features
 

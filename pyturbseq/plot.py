@@ -238,9 +238,9 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
 ## plot ratio of top 2 against counts: 
 def plot_top2ratio_counts(features, show=False):
         #plot QC for guide metrics
-    g = sns.jointplot(data = features.obs, y = 'log10_total_counts', x = 'log2_ratio_2nd_1st', kind = 'hex')
+    g = sns.jointplot(data = features.obs, y = 'log10_total_feature_counts', x = 'log2_ratio_2nd_1st_feature', kind = 'hex')
     g.ax_joint.set_ylabel('log10(total counts/cell)')
-    g.ax_joint.set_xlabel('log2(2nd top sgRNA / top sgRNA)')
+    g.ax_joint.set_xlabel('log2(2nd top feature / top feature)')
     g.fig.suptitle('Cell level metrics')
     g.fig.tight_layout()
     if show:
@@ -254,7 +254,7 @@ def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
     if ax is None:
         fig, ax = plt.subplots(1,1)
 
-    sns.scatterplot(data = features.var, y = 'pct_cells_with_guide', x = 'log10_total_counts', hue=ntc_var, ax=ax)
+    sns.scatterplot(data = features.var, y = 'pct_cells_with_feature', x = 'log10_total_feature_counts', hue=ntc_var, ax=ax)
     # uniform coverage expectation
     if ntc_var in features.var.columns:
         unif = (1/features.var.query(f'{ntc_var} == False').shape[0])/2
@@ -263,8 +263,8 @@ def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
         xmax = ax.get_xlim()[1]
         ax.text(xmax, unif, 'Expected %', ha='right', va='bottom', color='r')
         ax.legend(title='Negative Control')
-    ax.set_xlabel('log10(total counts/guide)')
-    ax.set_ylabel('% cells with guide')
+    ax.set_xlabel('log10(total counts/feature)')
+    ax.set_ylabel('% cells with feature')
     ax.set_ylim(0,0.2)
     #change y ticks to be multiplied by 100
     ax.set_yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])

@@ -89,6 +89,7 @@ def add_CR_sgRNA(
     sgRNA_analysis_out,
     calls_file="protospacer_calls_per_cell.csv",
     library_ref_file=None,
+    inplace=True,
     quiet=False,
     ):
     """
@@ -100,6 +101,11 @@ def add_CR_sgRNA(
     calls = calls.loc[inds, :]
 
     #merge with anndata obs
+    if not inplace: 
+        adata = adata.copy()
+        
     for col in calls.columns:
         adata.obs.loc[inds, col] = calls[col]
-    return adata
+
+    if not inplace:
+        return adata
