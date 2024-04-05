@@ -12,7 +12,7 @@ import math
 from joblib import Parallel, delayed
 
 
-def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
+def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n_cpus=16, quiet=False):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
     
@@ -30,13 +30,16 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
     ref_level = [design_col, ref_val] if ref_val is not None else None
 
     inference = DefaultInference(n_cpus=n_cpus)
+
+    design = design_col if covariate_cols is None else [design_col] + covariate_cols
+
     dds = DeseqDataSet(
         counts=pd.DataFrame(
             adata.X.toarray() if type(adata.X) is not np.ndarray else adata.X,
             index=adata.obs.index, columns=adata.var.index
         ),
         metadata=adata.obs,
-        design_factors=design_col,
+        design_factors=design,
         inference=inference,
         min_replicates=math.inf, 
         min_mu=1e-6,
@@ -46,21 +49,22 @@ def get_degs(adata, design_col, ref_val=None, n_cpus=16, quiet=False):
     )
 
     dds.deseq2()  # Passing the quiet argument
-    # Setting up contrast for DESeq2
-    if ref_val is None:
-        contrast = [design_col] + list(adata.obs[design_col].unique())
-    else:
-        contrast=None
-        
+
+    design_col_categories = adata.obs[design_col].unique()
+    #drop ref_val
+    if ref_val is not None:
+        design_col_categories = design_col_categories[design_col_categories != ref_val]
+    contrast = [design_col] + list(design_col_categories) + [ref_val] 
     stat_res = DeseqStats(dds, contrast=contrast, quiet=quiet, inference=inference)
     stat_res.summary()
 
     df = stat_res.results_df
-    df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
+    # df['padj_bh'] = multipletests(df['pvalue'], method='fdr_bh')[1]
+    df['significant'] = df['padj'] < 0.05
 
     return df
 
-def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n_cpus=8, max_workers=4, quiet=False):
+def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n_cpus=8, max_workers=4, quiet=False, **kwargs):
     """
     Run DESeq2 analysis in parallel for multiple conditions.
 
@@ -90,7 +94,8 @@ def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n
                 design_col,
                 ref_val=reference,
                 n_cpus=n_cpus,
-                quiet=quiet
+                quiet=quiet,
+                **kwargs
                 )
             df['condition'] = condition
             return df
