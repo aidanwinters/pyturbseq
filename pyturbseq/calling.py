@@ -115,6 +115,8 @@ def calculate_feature_call_metrics(features, feature_type='CRISPR Guide Capture'
 
     if feature_type is not None:
         features_subset = features[:,features.var.index[features.var['feature_types'] == feature_type]]
+    else:
+        features_subset = features
 
     if not inplace:
         vp(f"Creating copy AnnData object with guide calls...")
@@ -129,11 +131,6 @@ def calculate_feature_call_metrics(features, feature_type='CRISPR Guide Capture'
 
     features.obs['log1p_total_feature_counts'] = np.log1p(features_subset.X.sum(axis=1))
     features.obs['log10_total_feature_counts'] = np.log10(features_subset.X.sum(axis=1)+1)
-
-    # features.var['total_counts'] = features_subset.X.toarray().sum(axis=0)
-    # features.var['log1p_total_counts'] = np.log1p(features.var['total_counts'])
-    # features.var['log10_total_counts'] = np.log10(features.var['total_counts'])
-    # features.var['pct_cells_with_feature'] = (features_subset.X > 0).toarray().sum(axis=0) / adata.X.shape[0]
 
     if not inplace:
         return features

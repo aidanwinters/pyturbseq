@@ -9,10 +9,13 @@ import os
 import pandas as pd
 import math
 
+from .utils import add_pattern_to_adata
+
+
 def parse_h5(
-    CR_out,
+    cellranger_h5_path,
+    guide_call_csv=None,
     pattern=r"opl(?P<opl>\d+).*lane(?P<lane>\d+)",
-    add_guide_calls=True,
     quiet=False,
     ):
     """
@@ -24,34 +27,36 @@ def parse_h5(
     """
     vp = print if not quiet else lambda *a, **k: None
 
-    rna_file = os.path.join(CR_out , "filtered_feature_bc_matrix.h5")
+    # rna_file = os.path.join(CR_out , "filtered_feature_bc_matrix.h5")
 
-    vp(f"Reading {rna_file}")
-    adata = sc.read_10x_h5(rna_file, gex_only=False)
+    vp(f"Reading {cellranger_h5_path}")
+    adata = sc.read_10x_h5(cellranger_h5_path, gex_only=False)
     adata.var_names_make_unique()
     adata.obs_names_make_unique()
-    
-    ##add each capture group to adata.obs
-    match = re.search(pattern, rna_file)
-    if match is None:
-        raise ValueError(f"Could not extract metadata from {adata_path}")
-    else:
-        for key, value in match.groupdict().items():
-            vp(f"Adding {key} = {value}")
-            adata.obs[key] = value
+
+    if pattern is not None:
+        add_pattern_to_adata(adata, cellranger_h5_path, pattern, strict=True, quiet=quiet)
 
     ##Read in guide calls: 
-    if add_guide_calls:
+    if guide_call_csv is not None:
         vp("Adding guide calls")
-        guide_call_file = os.path.join(CR_out, "crispr_analysis/protospacer_calls_per_cell.csv")
-        vp(f"Reading {guide_call_file}")
-        guide_calls = pd.read_csv(guide_call_file, index_col=0)
+        # guide_call_file = os.path.join(CR_out, "crispr_analysis/protospacer_calls_per_cell.csv")
+        #confirm that calls_file exists
+        if not os.path.exists(guide_call_csv):
+            raise ValueError(f"Guide call CSV provided but file does not exist: {guide_call_csv}")
+
+        vp(f"Reading {guide_call_csv}")
+        guide_calls = pd.read_csv(guide_call_csv, index_col=0)
 
         cbcs = adata.obs.index
         inds = guide_calls.index.intersection(cbcs)
         guide_calls = guide_calls.loc[inds, :]
 
+        vp(f"Found sgRNA information for {len(inds)}/{adata.obs.shape[0]} ({round(len(inds) / adata.obs.shape[0] * 100, 2)}%) of cell barcodes")
+
         adata.obs = adata.obs.join(guide_calls)
+
+    vp(f"Finished reading adata with {adata.n_obs} cells and {adata.n_vars} genes")
 
     return(adata)
 
@@ -111,3 +116,25 @@ def add_CR_sgRNA(
 
     if not inplace:
         return adata
+
+
+def parse_CR_flex_metrics(df):
+    df = df.copy()
+    #formatted like so: 40.00%
+    pct_fmt = df['Metric Value'].str.endswith('%', na=False)
+    if pct_fmt.any():
+        df.loc[pct_fmt, 'Metric Value'] = df.loc[pct_fmt, 'Metric Value'].str.rstrip('%').astype(float) / 100
+    
+    pct_paren_fmt = df['Metric Value'].str.endswith('%)', na=False)
+    if pct_paren_fmt.any():
+        #get the number btwn the parentheses and drop the %
+        df.loc[pct_paren_fmt, 'Metric Value'] = df.loc[pct_paren_fmt, 'Metric Value'].str.extract(r'\((.*)%\)', expand=False).astype(float) / 100
+
+    #formatted like so: 20,000 (20.00%)
+    comma_fmt = df['Metric Value'].str.contains(',', na=False)
+    if comma_fmt.any():
+        df.loc[comma_fmt, 'Metric Value'] = df.loc[comma_fmt, 'Metric Value'].str.replace(',', '').astype(float)
+
+    #convert everything to float
+    df['Metric Value'] = df['Metric Value'].astype(float)
+    return df

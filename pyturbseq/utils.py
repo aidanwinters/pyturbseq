@@ -14,6 +14,50 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 import seaborn as sns
 import matplotlib.pyplot as plt
 from adpbulk import ADPBulk
+import re
+
+########################################################################################################################
+########### Basic STRING parsing utils #################################################################################
+########################################################################################################################
+def split_sort_trim(label, delim='|', delim2='_'):
+    #if not string then print
+    if type(label) != str:
+        return None
+    vals = np.sort([x.split(delim2)[0] for x in label.split(delim)])
+    return delim.join(vals)
+
+def split_compare(label, delim='|', delim2='_', expected_num=2):
+    if type(label) != str:
+        return None
+    vals = [x.split(delim2)[0] for x in label.split(delim)]
+    # if vals are all the same return val[0]
+    if len(vals) != expected_num:
+        return None
+    elif len(set(vals)) == 1:
+        return vals[0]
+    else: 
+        None    
+
+def split_sort_paste(l, split_delim='_', paste_delim='|'):
+    #if type is not series make it so
+    if type(l) != pd.Series:
+        l = pd.Series(l)
+
+    l = l.str.split(split_delim).str[0]
+    return paste_delim.join(np.sort(l.values))
+
+def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True):
+    vp = print if not quiet else lambda *a, **k: None
+    ##add each capture group to adata.obs
+    match = re.search(pattern, search_string)
+    if (match is None) and strict:
+        raise ValueError(f"In strict mode and could not extract metadata from {search_string}")
+    else:
+        for key, value in match.groupdict().items():
+            vp(f"Adding {key} = {value}")
+            adata.obs[key] = value
+
+
 
 ########################################################################################################################
 ########################################################################################################################
@@ -144,34 +188,6 @@ def get_perturbation_matrix(
         # adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
     else:
         return pm.loc[adata.obs.index, :]
-
-def split_sort_trim(label, delim='|', delim2='_'):
-    #if not string then print
-    if type(label) != str:
-        return None
-    vals = np.sort([x.split(delim2)[0] for x in label.split(delim)])
-    return delim.join(vals)
-
-def split_compare(label, delim='|', delim2='_', expected_num=2):
-    if type(label) != str:
-        return None
-    vals = [x.split(delim2)[0] for x in label.split(delim)]
-    # if vals are all the same return val[0]
-    if len(vals) != expected_num:
-        return None
-    elif len(set(vals)) == 1:
-        return vals[0]
-    else: 
-        None    
-
-
-def split_sort_paste(l, split_delim='_', paste_delim='|'):
-    #if type is not series make it so
-    if type(l) != pd.Series:
-        l = pd.Series(l)
-
-    l = l.str.split(split_delim).str[0]
-    return paste_delim.join(np.sort(l.values))
 
 
 def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
@@ -425,7 +441,7 @@ def cluster_adjacency(adata, method='leiden', inplace=True, **kwargs):
 ########################################################################################################################
 ########################################################################################################################
 
-def zscore(adata, ref_col='perturbation', ref_val='NTC|NTC', scale_factor = None,):
+def _zscore(adata, ref_col='perturbation', ref_val='NTC|NTC', scale_factor = None,):
     
     ##check if csr matrix
     if isinstance(adata.X, np.ndarray):
@@ -455,7 +471,7 @@ def zscore(adata, ref_col='perturbation', ref_val='NTC|NTC', scale_factor = None
     # stdev = np.std(adata[ref_inds,:].X, axis=0)
     return np.array(np.divide((arr - mean), stdev))
 
-def zscore_cov(
+def zscore(
         adata, 
         covariates=None,
         **kwargs):
@@ -479,7 +495,7 @@ def zscore_cov(
         for key, inds in mapping:
             print(key)
             rows = [index_to_row[index] for index in inds]
-            normalized_array[rows,] = zscore(adata[inds,], **kwargs)
+            normalized_array[rows,] = _zscore(adata[inds,], **kwargs)
         # arr = np.vstack([zscore(adata[inds,], **kwargs) for key, inds in mapping])
 
         ##append all the inds together: 
@@ -489,7 +505,7 @@ def zscore_cov(
 
     else:
         #if covariates are none then we just apply pseudobulk to the whole matrix (ie single sample)
-        return zscore(adata, **kwargs)
+        return _zscore(adata, **kwargs)
 
 
 def pseudobulk(adata, groupby, **kwargs):
