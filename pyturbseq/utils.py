@@ -285,17 +285,21 @@ def calculate_target_change(
     Returns:
     - An AnnData object with an additional column in obs containing the "percent knocked down" for each cell.
     """
+    #check inputs: 
+    duplicated_genes = adata.var.index.duplicated()
+    if sum(duplicated_genes) > 0:
+        raise ValueError(f"Duplicated gene names found in adata.var.index. Please remove duplicated gene names before running this function. \nDuplicated gene names found: {list(adata.var.index[duplicated_genes])}")
+
+    #check if obs names are unique
+    duplicated_obs = adata.obs.index.duplicated()
+    if sum(duplicated_obs) > 0:
+        raise ValueError(f"Observation names are not unique. To make them unique, call `.obs_names_make_unique` before running target change.")
 
     if not inplace:
         final_adata = adata.copy()   
     else: 
         final_adata = adata
     if not quiet: print(f"Computing percent change for '{perturbation_column}' across {adata.shape[0]} cells...")
-
-    #check inputs: 
-    duplicated_genes = adata.var.index.duplicated()
-    if sum(duplicated_genes) > 0:
-        raise ValueError(f"Duplicated gene names found in adata.var.index. Please remove duplicated gene names before running this function. \nGene names found: {list(adata.var.index[duplicated_genes])}")
 
     ##check to see if data is normalized to counts per cell
     if check_norm:
