@@ -53,7 +53,7 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
     try:
         gmm = GaussianMixture(n_components=n_components, random_state=seed, covariance_type="tied", n_init=5, **kwargs)
         pred = gmm.fit(counts)
-    except:
+    except Exception:
         print(f"failed to fit GMM. Returning -1")
         #return preds of -1
         return np.repeat(-1, counts.shape[0]), np.repeat(-1, counts.shape[0])

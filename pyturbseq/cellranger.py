@@ -86,7 +86,6 @@ def add_CR_umi_metrics(adata):
 
 def add_CR_sgRNA(
     adata,
-    sgRNA_analysis_out,
     calls_file="protospacer_calls_per_cell.csv",
     library_ref_file=None,
     inplace=True,
@@ -95,7 +94,10 @@ def add_CR_sgRNA(
     """
     Uses the cellranger calls and merges them with anndata along with some metrics
     """
-    calls = pd.read_csv(sgRNA_analysis_out + calls_file, index_col=0)
+    #confirm that calls_file exists
+    if not os.path.exists(calls_file):
+        raise ValueError(f"{calls_file} does not exist")
+    calls = pd.read_csv(calls_file, index_col=0)
     inds = calls.index.intersection(adata.obs.index)
     if not quiet: print(f'Found sgRNA information for {len(inds)}/{adata.obs.shape[0]} ({round(len(inds) / adata.obs.shape[0] * 100, 2)}%) of cell barcodes')
     calls = calls.loc[inds, :]
