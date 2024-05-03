@@ -110,7 +110,12 @@ def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inpl
 
 
 
-def calculate_feature_call_metrics(features, feature_type='CRISPR Guide Capture', inplace=True, quiet=False):
+def calculate_feature_call_metrics(
+    features,
+    feature_type=None,
+    inplace=True,
+    topN = [1,2],
+    quiet=False):
     vp = print if not quiet else lambda *a, **k: None
 
     if feature_type is not None:
@@ -123,14 +128,20 @@ def calculate_feature_call_metrics(features, feature_type='CRISPR Guide Capture'
         features = features.copy()
 
     features.obs['total_feature_counts'] = features_subset.X.sum(axis=1)
-    features.obs['proportion_counts_in_top_feature'] = features_subset.X.max(axis=1).toarray().flatten() / features.obs['total_feature_counts'].values
-
-    x_sorted = features_subset.X.toarray().argsort(axis=1)
-    features.obs['ratio_2nd_1st_feature'] = (x_sorted[:,-2]+1) / (x_sorted[:,-1]+1)
-    features.obs['log2_ratio_2nd_1st_feature'] = np.log2(features.obs['ratio_2nd_1st_feature'])
-
     features.obs['log1p_total_feature_counts'] = np.log1p(features_subset.X.sum(axis=1))
     features.obs['log10_total_feature_counts'] = np.log10(features_subset.X.sum(axis=1)+1)
+
+
+    X = features_subset.X.toarray()
+    X.sort(axis=1)
+    features.obs['ratio_2nd_1st_feature'] = (X[:,-2]) / (X[:,-1])
+    features.obs['log2_ratio_2nd_1st_feature'] = np.log2(features.obs['ratio_2nd_1st_feature'])
+
+    if (topN is not None) and (len(topN) > 0):
+        for n in topN:
+            topN = X[:,-n:]
+            prop_topN = topN.sum(axis=1) / X.sum(axis=1)
+            features.obs[f'pct_top{n}_features'] = prop_topN * 100
 
     if not inplace:
         return features

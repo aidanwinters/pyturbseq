@@ -214,7 +214,7 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
     if corr == 'spearman':
         corr = spearmanr(x,y, nan_policy='omit')[0]
     elif corr == 'pearson':
-        corr = pearsonr(x,y, nan_policy='omit')[0]
+        corr = pearsonr(x,y)[0]
     
     if corr is not None:
         #put correlation bottom right

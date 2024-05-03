@@ -4,11 +4,14 @@ from setuptools import setup, find_packages
 with open('README.md', encoding='utf-8') as f:
     long_description = f.read()
 
+#add version tag
+    
+
 setup(
     name='pyturbseq',
     author='Aidan Winters',
     author_email='aidanfwinters@gmail.com',
-    version='0.0.10',
+    version='0.0.11',
     long_description=long_description,
     long_description_content_type='text/markdown',
     packages=['pyturbseq'],
