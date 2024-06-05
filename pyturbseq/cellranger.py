@@ -12,7 +12,7 @@ import math
 from .utils import add_pattern_to_adata
 
 
-def parse_h5(
+def parse_CR_h5(
     cellranger_h5_path,
     guide_call_csv=None,
     pattern=None,
@@ -89,7 +89,6 @@ def add_CR_umi_metrics(adata):
     #merge by index but keep index as index
     adata.obs = adata.obs.merge(df, left_index=True, right_index=True)
     return adata
-
 
 def add_CR_sgRNA(
     adata,

@@ -108,7 +108,7 @@ def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inpl
     features.uns['features'] = feature_list.values
     features.obs['num_features'] = called.toarray().sum(axis=1).flatten()
     features.obs['feature_call'] = ['|'.join(feature_list[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
-    features.obs['feature_umi'] = ['|'.join(features[x,feature_list].X.toarray().astype('int').astype('str').flatten()) for x in range(features.X.shape[0])]
+    # features.obs['feature_umi'] = ['|'.join(features[x,feature_list].X.toarray().astype('int').astype('str').flatten()) for x in range(features.X.shape[0])]
     if not inplace:
         return features
 
@@ -361,10 +361,6 @@ def call_hto(
     
     if not inplace: 
         return counts
-
-
-
-
 
 
 ########################################################################################################################
