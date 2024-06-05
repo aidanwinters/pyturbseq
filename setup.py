@@ -11,7 +11,7 @@ setup(
     name='pyturbseq',
     author='Aidan Winters',
     author_email='aidanfwinters@gmail.com',
-    version='0.0.11',
+    version='0.0.12',
     long_description=long_description,
     long_description_content_type='text/markdown',
     packages=['pyturbseq'],

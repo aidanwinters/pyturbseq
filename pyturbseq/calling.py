@@ -71,12 +71,13 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
 
     return probs_positive > prob_threshold #return confident (ie above threshold) positive calls
 
-def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inplace=True, quiet=True, **kwargs):
+def call_features(features, feature_type=None, feature_key=None, min_feature_umi=1, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
     Accepts an anndata object with adata.X containing the counts of each guide.
     In parallel, fits a GMM to each guide and returns the predicted class for each guide.
     Args:
         features: anndata object with adata.X containing the counts of each guide
+
     Returns:
         anndata object with adata.X containing the predicted class for each guide
     """
@@ -87,6 +88,7 @@ def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inpl
         vp(f"Subsetting features to {feature_type}...")
         assert feature_type in features.var['feature_types'].unique(), f"feature_type {feature_type} not found in var['feature_types']"
         feature_list = features.var.index[features.var['feature_types'] == feature_type]
+        vp(f"Found {len(feature_list)} features of type {feature_type}")
         lil = features[:,features.var.index[features.var['feature_types'] == feature_type]].X.T.tolil()
     else:
         feature_list = features.var.index
@@ -104,10 +106,16 @@ def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inpl
         features = features.copy()
 
     vp(f"Updating AnnData object with guide calls...")
-    features.obsm['calls'] = called
-    features.uns['features'] = feature_list.values
-    features.obs['num_features'] = called.toarray().sum(axis=1).flatten()
-    features.obs['feature_call'] = ['|'.join(feature_list[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
+    if feature_key:
+        features.obsm[f'{feature_key}_calls'] = called
+        features.uns[f'{feature_key}'] = feature_list.values
+        features.obs[f'num_{feature_key}'] = called.toarray().sum(axis=1).flatten()
+        features.obs[f'{feature_key}_call'] = ['|'.join(feature_list[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
+    else:
+        features.obsm['calls'] = called
+        features.uns['features'] = feature_list.values
+        features.obs['num_features'] = called.toarray().sum(axis=1).flatten()
+        features.obs['feature_call'] = ['|'.join(feature_list[called[x,:].toarray().flatten() == 1]) for x in range(features.shape[0])]
     # features.obs['feature_umi'] = ['|'.join(features[x,feature_list].X.toarray().astype('int').astype('str').flatten()) for x in range(features.X.shape[0])]
     if not inplace:
         return features
@@ -162,6 +170,7 @@ def parse_dual_guide_df(
     position_extraction = lambda x: x.split('_')[-1], #default is last underscore
     perturbation_extraction = lambda x: x.split('_')[0],
     library_reference: [pd.DataFrame, str] = None,
+    feature_key=None
     ):
     """
     Parse dual guide calls into a single perturbation annotation.
@@ -179,13 +188,16 @@ def parse_dual_guide_df(
     library_reference (pd.DataFrame or str): Reference library to check for perturbations in.
     """
 
-    cols = ['feature_call', 'num_features']
+    num_feature_col = f'num_{feature_key}' if feature_key else 'num_features'
+    feature_call_col = f'{feature_key}_call' if feature_key else 'feature_call' 
+
+    cols = [num_feature_col, feature_call_col]
     #check if cols are in 
     if not all([x in calls.columns for x in cols]):
         raise ValueError(f"Missing columns {cols} in calls. Did you load the sgRNA calls?")
 
-    dual_calls = calls.loc[calls['num_features'] == 2, cols].copy()
-    duals_split = dual_calls['feature_call'].str.split(call_sep, expand=True)
+    dual_calls = calls.loc[calls[num_feature_col] == 2, cols].copy()
+    duals_split = dual_calls[feature_call_col].str.split(call_sep, expand=True)
 
     if position_annotation is None:
         print("Extracting position annotation from calls...")
