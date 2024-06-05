@@ -15,7 +15,7 @@ from .utils import add_pattern_to_adata
 def parse_h5(
     cellranger_h5_path,
     guide_call_csv=None,
-    pattern=r"opl(?P<opl>\d+).*lane(?P<lane>\d+)",
+    pattern=None,
     quiet=False,
     ):
     """
@@ -28,6 +28,8 @@ def parse_h5(
     vp = print if not quiet else lambda *a, **k: None
 
     # rna_file = os.path.join(CR_out , "filtered_feature_bc_matrix.h5")
+    if not os.path.exists(cellranger_h5_path):
+        raise ValueError(f"Cellranger h5 file provided but file does not exist: {cellranger_h5_path}")
 
     vp(f"Reading {cellranger_h5_path}")
     adata = sc.read_10x_h5(cellranger_h5_path, gex_only=False)

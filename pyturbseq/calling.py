@@ -8,13 +8,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import os
 
 from sklearn.mixture import GaussianMixture
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, issparse
 
+
+
+## Functions for feature calling
 
 def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, calling_min_count=1, seed=99, **kwargs):
     """
@@ -108,8 +112,6 @@ def call_features(features, feature_type=None, min_feature_umi=1, n_jobs=1, inpl
     if not inplace:
         return features
 
-
-
 def calculate_feature_call_metrics(
     features,
     feature_type=None,
@@ -146,10 +148,227 @@ def calculate_feature_call_metrics(
     if not inplace:
         return features
 
+
 ########################################################################################################################
+## Functions for parsing calls
 ########################################################################################################################
-############# GUIDE CALLING FUNCTIONS ##################################################################################
+def parse_dual_guide_df(
+    calls,
+    position_annotation: list = None,
+    call_sep: str = '|',
+    collapse_same_target: bool = True,
+    sort_perturbation: bool = True,
+    perturbation_name: str = 'perturbation',
+    position_extraction = lambda x: x.split('_')[-1], #default is last underscore
+    perturbation_extraction = lambda x: x.split('_')[0],
+    library_reference: [pd.DataFrame, str] = None,
+    ):
+    """
+    Parse dual guide calls into a single perturbation annotation.
+    This was built to parse calls in the format of 'sgRNA_A|sgRNA_B' into a single perturbation annotation.
+
+    Args:
+    calls (pd.DataFrame): DataFrame of calls with columns 'feature_call' and 'num_features'.
+    position_annotation (list): List of two strings indicating the position annotation of the sgRNAs (recommended). If None, then position extraction is used to get position annotations.
+    call_sep (str): Separator between calls.
+    collapse_same_target (bool): Collapse dual perturbations that target the same gene.
+    sort_perturbation (bool): Sort the perturbations in the annotation.
+    perturbation_name (str): Name of the new perturbation annotation.
+    position_extraction (function): Function to extract position annotation from the call.
+    perturbation_extraction (function): Function to extract perturbation annotation from the call.
+    library_reference (pd.DataFrame or str): Reference library to check for perturbations in.
+    """
+
+    cols = ['feature_call', 'num_features']
+    #check if cols are in 
+    if not all([x in calls.columns for x in cols]):
+        raise ValueError(f"Missing columns {cols} in calls. Did you load the sgRNA calls?")
+
+    dual_calls = calls.loc[calls['num_features'] == 2, cols].copy()
+    duals_split = dual_calls['feature_call'].str.split(call_sep, expand=True)
+
+    if position_annotation is None:
+        print("Extracting position annotation from calls...")
+        positions = duals_split.apply(lambda row: [position_extraction(x) for x in row], axis=1)
+        position_annotation = list(set([x for y in positions for x in y]))
+        print(f"Detected position annotation: {position_annotation}")
+
+    #check that position_annotation is len 2
+    if len(position_annotation) != 2:
+        raise ValueError(f"Position annotation must be length 2, got {len(position_annotation)}")
+
+
+    position_annot_srt = sorted(position_annotation)
+    #sort by the position letter to get into the same order as the annotation
+    sgRNA_wPos_cols = [f'sgRNA_fullID_{x}' for x in position_annot_srt]
+    sgRNA_cols= [f'sgRNA_{x}' for x in position_annot_srt]
+    dual_calls[sgRNA_wPos_cols] = duals_split.apply(lambda row: sorted(row, key=lambda x: position_extraction(x)), axis=1).tolist()
+    for c_wPos, c in zip(sgRNA_wPos_cols, sgRNA_cols):
+        dual_calls[c] = dual_calls[c_wPos].apply(lambda x: perturbation_extraction(x))
+
+    dual_calls[f"{perturbation_name}_fullID"] = dual_calls[sgRNA_wPos_cols].apply(lambda row: '|'.join(row), axis=1)
+
+    ## adding annotations
+    pos1, pos2 = position_annot_srt
+
+    #check if recombined (ie doubled up on the same position)
+    same_position = duals_split.apply(lambda row: position_extraction(row[0]) == position_extraction(row[1]), axis=1)
+    dual_calls.loc[same_position, f'{perturbation_name}_status'] = 'same_position'
+
+    if library_reference:
+        #check if isa dataframe
+        if isinstance(library_reference, pd.DataFrame):
+            ref = library_reference
+        elif (isinstance(library_reference, str) and os.path.exists(library_reference)):
+            ref = pd.read_csv(library_reference)
+        else: 
+            raise ValueError(f"library_reference must be a dataframe or a path to a csv file, got {type(library_reference)}")
+        # confirm the columns of ref match sgRNA_cols
+        if not all([x in ref.columns for x in sgRNA_cols]):
+            raise ValueError(f"Missing columns {sgRNA_cols} in library reference")
+
+        print(f"Parsing library reference with {ref.shape[0]} sgRNA pairs...")
+        ref['as_str'] = ref[sgRNA_cols].apply(lambda row: '|'.join(row), axis=1).to_list()
+        dual_calls.loc[dual_calls[f"{perturbation_name}_fullID"].isin(ref['as_str']), f'{perturbation_name}_status'] = 'in_library'
+
+    if collapse_same_target & all(dual_calls[f'sgRNA_{pos1}'] == dual_calls[f'sgRNA_{pos2}']):
+        #check to see if all dual perturbations have the same target and, if indicated, collapse
+        print("Dual guide same target found, collapsing to same target..")
+        dual_calls[perturbation_name] = dual_calls[f'sgRNA_{pos1}']
+    elif sort_perturbation:
+        #this assumes that gene name is stored before the underscore
+        print(f"Sorting sgRNA for '{perturbation_name}' annotation...")
+        sgRNAs = dual_calls[sgRNA_cols].apply(lambda row: sorted(row, key=lambda x: str(x)), axis=1).to_list()
+        dual_calls[perturbation_name] = [f"{x[0]}|{x[1]}" for x in sgRNAs]
+    else:
+        sgRNAs = dual_calls[sgRNA_cols].values.tolist()
+        dual_calls[perturbation_name] = [f"{x[0]}|{x[1]}" for x in sgRNAs]
+    
+    # merge with original calls (drop any existing columns that have been recalculated)
+    dual_calls = dual_calls.drop(columns=cols)
+    out = calls.drop(columns=dual_calls.columns, errors='ignore').merge(dual_calls, how='left', left_index=True, right_index=True)
+    return out
+
+def parse_dual_guide(
+    adata: sc.AnnData,
+    inplace: bool = False,
+    **kwargs):
+    """
+    Parse dual guide calls into a single perturbation annotation. A wrapper AnnData function for parse_dual_guide_df.
+    """
+    adata = adata.copy() if not inplace else adata
+    adata.obs = parse_dual_guide_df(adata.obs, **kwargs)
+    
+    if not inplace:
+        return adata
+
+
+
 ########################################################################################################################
+## Functions for HTO calling
+########################################################################################################################
+def CLR(x):
+    '''
+    Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
+    
+    Args:
+    - 
+    
+    Returns:
+    -  A numpy array with the CLR-transformed features.
+    
+    Notes:
+    - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
+    - The function first applies the log transform (after adding 1 to handle zeros). 
+      Then, for each feature, it subtracts the mean value of that feature, thus "centering" the log-transformed values.
+    '''
+    log1p = np.log1p(x)
+    #center each column at 0
+    T_clr = log1p - log1p.mean(axis=0)
+    return T_clr
+
+def _multivariate_clr_gm(
+    x,
+    n_components=None,
+    filter_on_prob=None,
+    per_column=False,
+    ):
+
+    print(f'Fitting Gaussian Mixture Model....')
+    clr = CLR(x)
+
+    if n_components is None:
+        print(f'\t No n_components provided, using {x.shape[1]}')
+        n_components = x.shape[1]
+
+    gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr)
+    gm_assigned = gm.predict(clr)
+    max_probability = gm.predict_proba(clr).max(axis=1)
+    return clr, gm_assigned, max_probability
+
+def call_hto(
+    counts: sc.AnnData,
+    features=None,
+    feature_type=None,
+    rename=None,
+    probability_threshold=None,
+    inplace=False,
+    ):
+    """
+    """
+    if (features is None) & (feature_type is None):
+        features = counts.var.index
+    elif feature_type:
+        print(f"Filtering features by type: {feature_type}")
+        features = counts.var.query(f"feature_types == '{feature_type}'").index
+
+    print(f"Found {len(features)} features to use for HTO calling.")
+    x = counts[:, features].X
+    #if x is sparse, convert to dense
+    if issparse(x):
+        x = x.toarray()   
+
+    clr, assigned, probs = _multivariate_clr_gm(x, n_components=len(features))
+
+    #map the assignment to the max feature
+    #get mean of each clr column for each group and assign each cell to the group with the highest mean
+    clr_means = pd.DataFrame(clr, columns=features).groupby(assigned).mean()
+    mapping = clr_means.T.idxmax(axis=0).to_dict()
+
+    print(f"Assigned {counts.shape[0]} cells to {len(mapping)} HTOs.")
+    
+    #confirm that nothing maps to the same group
+    if len(set(mapping.values())) != len(mapping):
+        raise ValueError("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
+
+    df = pd.DataFrame({
+        'HTO_total_counts': np.sum(x, axis=1),
+        'HTO': [mapping[x] for x in assigned],
+        'HTO_max_probability': probs
+    }, index=counts.obs.index)
+
+    if probability_threshold:
+        print(f"Filtering HTO calls with probability > {probability_threshold}")
+        df['HTO'] = np.where(df['HTO_max_probability'] > probability_threshold, df['HTO'], None)
+
+    if rename:
+        df[rename] = df['HTO']
+
+    counts = counts.copy() if not inplace else counts
+
+    for col in df.columns:
+        counts.obs[col] = df[col]
+    
+    if not inplace: 
+        return counts
+
+
+
+
+
+
+########################################################################################################################
+## Calling QC functions
 ########################################################################################################################
 
 ##random pivot proportion function
@@ -246,170 +465,176 @@ def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
 
     fig.tight_layout()
 
-def assign_guides(guides, max_ratio_2nd_1st=0.35, min_total_counts=10):
-    """ 
-    Assumes that guides is an AnnData object with counts at guides.X
-    """
 
-    matr = guides.X.toarray()
-    total_counts = matr.sum(axis=1)
-    #sort matr within each row
-    matr_sort = np.sort(matr, axis=1)
-    ratio_2nd_1st = matr_sort[:, -2] / matr_sort[:, -1]
+########################################################################################################################
+########################################################################################################################
+############# DEPRECATED CALLING FUNCTIONS ##################################################################################
+########################################################################################################################
+########################################################################################################################
+# def assign_guides(guides, max_ratio_2nd_1st=0.35, min_total_counts=10):
+#     """ 
+#     Assumes that guides is an AnnData object with counts at guides.X
+#     """
 
-    #get argmax for each row
-    argmax = np.argmax(matr, axis=1)
-    assigned = guides.var.index[argmax].values
+#     matr = guides.X.toarray()
+#     total_counts = matr.sum(axis=1)
+#     #sort matr within each row
+#     matr_sort = np.sort(matr, axis=1)
+#     ratio_2nd_1st = matr_sort[:, -2] / matr_sort[:, -1]
+
+#     #get argmax for each row
+#     argmax = np.argmax(matr, axis=1)
+#     assigned = guides.var.index[argmax].values
 
 
-    #set any that don't pass filter to none
-    assigned[(ratio_2nd_1st > max_ratio_2nd_1st) | (total_counts < min_total_counts)] = None
+#     #set any that don't pass filter to none
+#     assigned[(ratio_2nd_1st > max_ratio_2nd_1st) | (total_counts < min_total_counts)] = None
 
-    #print how many guides did not pass thresholds
-    print(f"{(ratio_2nd_1st > max_ratio_2nd_1st).sum()} guides did not pass ratio filter")
-    print(f"{(total_counts < min_total_counts).sum()} guides did not pass total counts filter")
-    #print total that are None
-    print(f"{(assigned == None).sum()} cells did not pass thresholds")
+#     #print how many guides did not pass thresholds
+#     print(f"{(ratio_2nd_1st > max_ratio_2nd_1st).sum()} guides did not pass ratio filter")
+#     print(f"{(total_counts < min_total_counts).sum()} guides did not pass total counts filter")
+#     #print total that are None
+#     print(f"{(assigned == None).sum()} cells did not pass thresholds")
 
-    guides.obs['assigned_perturbation'] = assigned
-    guides.obs['guide_ratio_2nd_1st'] = ratio_2nd_1st
-    guides.obs['guide_total_counts'] = total_counts
+#     guides.obs['assigned_perturbation'] = assigned
+#     guides.obs['guide_ratio_2nd_1st'] = ratio_2nd_1st
+#     guides.obs['guide_total_counts'] = total_counts
 
-    return guides
+#     return guides
 
 
 ### FEATURE CALLING FUNCTIONS
-import numpy as np
-import pandas as pd
-from sklearn.mixture import GaussianMixture
+# import numpy as np
+# import pandas as pd
+# from sklearn.mixture import GaussianMixture
 
-def CLR(df):
-    '''
-    Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
+# def CLR(df):
+#     '''
+#     Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
     
-    Args:
-    - df (pd.DataFrame): The input data frame containing features to be transformed.
+#     Args:
+#     - df (pd.DataFrame): The input data frame containing features to be transformed.
     
-    Returns:
-    - pd.DataFrame: A data frame with the CLR-transformed features.
+#     Returns:
+#     - pd.DataFrame: A data frame with the CLR-transformed features.
     
-    Notes:
-    - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
-    - The function first applies the log transform (after adding 1 to handle zeros). 
-      Then, for each feature, it subtracts the mean value of that feature, thus "centering" the log-transformed values.
-    '''
-    logn1 = np.log(df + 1)
-    T_clr = logn1.sub(logn1.mean(axis=0), axis=1)
+#     Notes:
+#     - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
+#     - The function first applies the log transform (after adding 1 to handle zeros). 
+#       Then, for each feature, it subtracts the mean value of that feature, thus "centering" the log-transformed values.
+#     '''
+#     logn1 = np.log(df + 1)
+#     T_clr = logn1.sub(logn1.mean(axis=0), axis=1)
     
-    return T_clr
+#     return T_clr
 
-def get_gm(col, n_components=2):
-    '''
-    Fits a Gaussian Mixture model to a given feature/column and assigns cluster labels.
+# def get_gm(col, n_components=2):
+#     '''
+#     Fits a Gaussian Mixture model to a given feature/column and assigns cluster labels.
     
-    Args:
-    - col (np.array): The input column/feature to cluster.
-    - n_components (int): Number of mixture components to use (default=2).
+#     Args:
+#     - col (np.array): The input column/feature to cluster.
+#     - n_components (int): Number of mixture components to use (default=2).
     
-    Returns:
-    - tuple: Cluster labels assigned to each data point and the maximum probabilities of cluster membership.
-    '''
+#     Returns:
+#     - tuple: Cluster labels assigned to each data point and the maximum probabilities of cluster membership.
+#     '''
     
-    # Reshaping column to a 2D array, required for GaussianMixture input
-    col = col.reshape(-1, 1)
+#     # Reshaping column to a 2D array, required for GaussianMixture input
+#     col = col.reshape(-1, 1)
     
-    # Fitting the Gaussian Mixture model
-    gm = GaussianMixture(n_components=n_components, random_state=0).fit(col)
-    gm_assigned = gm.predict(col)
+#     # Fitting the Gaussian Mixture model
+#     gm = GaussianMixture(n_components=n_components, random_state=0).fit(col)
+#     gm_assigned = gm.predict(col)
 
-    # Reorder cluster labels so that they are consistent with the order of mean values of clusters
-    mapping = {}
-    classes = set(gm_assigned)
-    class_means = [(col[gm_assigned == c].mean(), c) for c in classes]
-    ordered = sorted(class_means)
-    mapping = {x[1]: i for i, x in enumerate(ordered)}
-    gm_assigned = np.array([mapping[x] for x in gm_assigned])
+#     # Reorder cluster labels so that they are consistent with the order of mean values of clusters
+#     mapping = {}
+#     classes = set(gm_assigned)
+#     class_means = [(col[gm_assigned == c].mean(), c) for c in classes]
+#     ordered = sorted(class_means)
+#     mapping = {x[1]: i for i, x in enumerate(ordered)}
+#     gm_assigned = np.array([mapping[x] for x in gm_assigned])
 
-    max_probability = gm.predict_proba(col).max(axis=1)
-    return (gm_assigned, max_probability)
+#     max_probability = gm.predict_proba(col).max(axis=1)
+#     return (gm_assigned, max_probability)
 
-def assign_hto_per_column_mixtureModel(hto_df, filter_on_prob=None):
-    '''
-    Assigns labels to each data point in the provided dataframe based on Gaussian Mixture clustering results.
+# def assign_hto_per_column_mixtureModel(hto_df, filter_on_prob=None):
+#     '''
+#     Assigns labels to each data point in the provided dataframe based on Gaussian Mixture clustering results.
     
-    Args:
-    - hto_df (pd.DataFrame): The input data frame containing features to be clustered.
-    - filter_on_prob (float, optional): If provided, it may be used to filter results based on probability thresholds.
+#     Args:
+#     - hto_df (pd.DataFrame): The input data frame containing features to be clustered.
+#     - filter_on_prob (float, optional): If provided, it may be used to filter results based on probability thresholds.
     
-    Returns:
-    - tuple: A data frame summarizing cluster assignments and two arrays with cluster labels and max probabilities.
-    '''
+#     Returns:
+#     - tuple: A data frame summarizing cluster assignments and two arrays with cluster labels and max probabilities.
+#     '''
     
-    # Apply CLR transform to the dataframe
-    clr = CLR(hto_df)
+#     # Apply CLR transform to the dataframe
+#     clr = CLR(hto_df)
 
-    # Fit Gaussian Mixture to each column in the transformed dataframe
-    n_components = 2
-    gms = [get_gm(clr[c].values, n_components=n_components) for c in hto_df.columns]
-    gm_assigned = np.array([x[0] for x in gms]).T
-    max_probability = np.array([x[1] for x in gms]).T
+#     # Fit Gaussian Mixture to each column in the transformed dataframe
+#     n_components = 2
+#     gms = [get_gm(clr[c].values, n_components=n_components) for c in hto_df.columns]
+#     gm_assigned = np.array([x[0] for x in gms]).T
+#     max_probability = np.array([x[1] for x in gms]).T
 
-    # Define a helper function to determine cluster assignment based on Gaussian Mixture results
-    def assign(x, cols):
-        if sum(x) > 1:
-            return 'multiplet'
-        elif sum(x) < 1:
-            return 'unassigned'
-        else:
-            return cols[x == 1].values[0]
+#     # Define a helper function to determine cluster assignment based on Gaussian Mixture results
+#     def assign(x, cols):
+#         if sum(x) > 1:
+#             return 'multiplet'
+#         elif sum(x) < 1:
+#             return 'unassigned'
+#         else:
+#             return cols[x == 1].values[0]
 
-    # Use the helper function to determine cluster assignment for each data point
-    trt = [assign(x, hto_df.columns) for x in gm_assigned]
+#     # Use the helper function to determine cluster assignment for each data point
+#     trt = [assign(x, hto_df.columns) for x in gm_assigned]
 
-    # Create a summary dataframe
-    df = pd.DataFrame({
-        'treatment': trt,
-        'HTO_max_prob': max_probability.max(axis=1),
-        'ratio_max_prob_to_total': max_probability.max(axis=1) / max_probability.sum(axis=1),
-        'total_HTO_counts': hto_df.sum(axis=1),
-    })
+#     # Create a summary dataframe
+#     df = pd.DataFrame({
+#         'treatment': trt,
+#         'HTO_max_prob': max_probability.max(axis=1),
+#         'ratio_max_prob_to_total': max_probability.max(axis=1) / max_probability.sum(axis=1),
+#         'total_HTO_counts': hto_df.sum(axis=1),
+#     })
 
-    return df, gm_assigned, max_probability
-
-
-def assign_hto_mixtureModel(
-    hto_df,
-    n_components=None,
-    filter_on_prob=None,
-    per_column=False,
-    ):
-
-    print(f'Fitting Gaussian Mixture Model....')
-    clr = CLR(hto_df)
-
-    if n_components is None:
-        print(f'\t No n_components provided, using {hto_df.shape[1]}')
-        n_components = hto_df.shape[1]
-
-    gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr.values)
-    gm_assigned = gm.predict(clr.values)
-
-    max_probability = gm.predict_proba(clr.values).max(axis=1)
+#     return df, gm_assigned, max_probability
 
 
-    ## Perform mapping by assigning the maximum CLR to each predicted class
-    mapping = {}
-    for c in set(gm_assigned):
-        mapping[c] = clr.loc[gm_assigned == c, clr.columns].mean(axis=0).idxmax()
+# def assign_HTO(
+#     hto_df,
+#     n_components=None,
+#     filter_on_prob=None,
+#     per_column=False,
+#     ):
+
+#     print(f'Fitting Gaussian Mixture Model....')
+#     clr = CLR(hto_df)
+
+#     if n_components is None:
+#         print(f'\t No n_components provided, using {hto_df.shape[1]}')
+#         n_components = hto_df.shape[1]
+
+#     gm = GaussianMixture(n_components=n_components, random_state=0).fit(clr.values)
+#     gm_assigned = gm.predict(clr.values)
+
+#     max_probability = gm.predict_proba(clr.values).max(axis=1)
+
+
+#     ## Perform mapping by assigning the maximum CLR to each predicted class
+#     mapping = {}
+#     for c in set(gm_assigned):
+#         mapping[c] = clr.loc[gm_assigned == c, clr.columns].mean(axis=0).idxmax()
     
-    trt = pd.Series([mapping[x] for x in gm_assigned]) # Get treatment cal
-    if filter_on_prob is not None: 
-        print(f'\t Filtering below GM prediction probability {filter_on_prob}')
-        trt[max_probability <= filter_on_prob] =  None 
+#     trt = pd.Series([mapping[x] for x in gm_assigned]) # Get treatment cal
+#     if filter_on_prob is not None: 
+#         print(f'\t Filtering below GM prediction probability {filter_on_prob}')
+#         trt[max_probability <= filter_on_prob] =  None 
 
-    df = pd.DataFrame({
-        'total_HTO_counts': hto_df.sum(axis=1),
-        'treatment': trt.values,
-        'HTO_max_prob': max_probability
-    }, index=hto_df.index)
-    return df
+#     df = pd.DataFrame({
+#         'total_HTO_counts': hto_df.sum(axis=1),
+#         'HTO': trt.values,
+#         'HTO_max_prob': max_probability
+#     }, index=hto_df.index)
+#     return df
