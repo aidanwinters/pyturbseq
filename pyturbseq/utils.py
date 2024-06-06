@@ -65,7 +65,10 @@ def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True)
 ########################################################################################################################
 
 def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
-    
+    """
+    Filter an anndata object based on obs and var filters.
+    """
+
     if obs_filters is not None:
         obs_filter = np.all([adata.obs.eval(f) for f in obs_filters], axis=0)
         adata = adata[obs_filter, :]
