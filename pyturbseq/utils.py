@@ -71,6 +71,11 @@ def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
     if obs_filters is not None:
         for f in obs_filters:
             adata = adata[adata.obs.query(f).index, :]
+    # if obs_filters is not None:
+    #     #eval all filters and collapse into single boolean
+    #     obs_filter = [eval(f) for f in obs_filters]
+    #     obs_filter = np.all(obs_filter, axis=0)
+    #     adata = adata[obs_filter, :]
         
     if var_filters is not None:
         for f in var_filters:

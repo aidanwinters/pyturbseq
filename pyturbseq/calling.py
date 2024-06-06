@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import os
+import warnings
 
 from sklearn.mixture import GaussianMixture
 from joblib import Parallel, delayed
@@ -20,7 +21,7 @@ from scipy.sparse import csr_matrix, issparse
 
 ## Functions for feature calling
 
-def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, calling_min_count=1, seed=99, **kwargs):
+def gm(counts, n_components=2, probability_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, calling_min_count=1, seed=99, **kwargs):
     """
     Fits a Gaussian Mixture Model to the input data.
     Args:
@@ -69,7 +70,7 @@ def gm(counts, n_components=2, prob_threshold=0.5, subset=False, subset_minimum=
     positive = np.argmax(means)
     probs_positive = probs[:,positive]
 
-    return probs_positive > prob_threshold #return confident (ie above threshold) positive calls
+    return probs_positive > probability_threshold #return confident (ie above threshold) positive calls
 
 def call_features(features, feature_type=None, feature_key=None, min_feature_umi=1, n_jobs=1, inplace=True, quiet=True, **kwargs):
     """
@@ -351,7 +352,8 @@ def call_hto(
     
     #confirm that nothing maps to the same group
     if len(set(mapping.values())) != len(mapping):
-        raise ValueError("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
+        # raise ValueError("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
+        warnings.warn("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
 
     df = pd.DataFrame({
         'HTO_total_counts': np.sum(x, axis=1),

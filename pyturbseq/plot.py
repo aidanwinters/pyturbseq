@@ -14,9 +14,58 @@ from scipy.stats import spearmanr, pearsonr
 
 from .utils import cluster_df
 from .interaction import get_singles, get_model_fit
-
-
 from matplotlib.patches import Patch
+import upsetplot as up 
+
+def plot_filters(
+    filters: [dict, list],
+    adata: sc.AnnData,
+    axis: str = 'obs',
+    **kwargs
+    ):
+    """
+    Plot the filters on as an upset plot.
+
+    Args:
+        filters: Either dictionary of filters in the form accepted by .utils.filter_adata that must contain the "axis" key (default is "obs"). Or a list of filters directly. 
+        adata: AnnData object
+        axis: Axis to filter on. Default is "obs"
+        **kwargs: Additional arguments to pass to upsetplot.plot
+    """
+
+    #check if list or dict
+    if isinstance(filters, dict):
+        filters = filters[axis]
+    elif isinstance(filters, list):
+        filters = filters
+    else:
+        raise ValueError("Filters must be either a dictionary or list.")
+
+    if axis == 'obs':
+        df = adata.obs
+    elif axis == 'var':
+        df = adata.var
+    else:
+        raise ValueError("Axis must be either 'obs' or 'var'.")
+
+    upset_df = pd.concat([df.eval(filters[i]) for i in range(len(filters))], axis=1)
+    upset_df.columns = filters
+    print(upset_df.head())
+
+    for arg, val in [('min_subset_size', '0.5%'), ('sort_by', 'cardinality'), ('show_percentages', '{:.0%}')]:
+        if arg not in kwargs:
+            kwargs[arg] = val
+    
+    up.plot(
+        upset_df.value_counts(),
+        **kwargs
+        )
+
+
+
+
+
+
 
 def plot_adj_matr(
     adata,
