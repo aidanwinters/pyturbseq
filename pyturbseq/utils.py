@@ -66,20 +66,13 @@ def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True)
 
 def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
     
-    if copy: 
-        adata = adata.copy()
     if obs_filters is not None:
-        for f in obs_filters:
-            adata = adata[adata.obs.query(f).index, :]
-    # if obs_filters is not None:
-    #     #eval all filters and collapse into single boolean
-    #     obs_filter = [eval(f) for f in obs_filters]
-    #     obs_filter = np.all(obs_filter, axis=0)
-    #     adata = adata[obs_filter, :]
+        obs_filter = np.all([adata.obs.eval(f) for f in obs_filters], axis=0)
+        adata = adata[obs_filter, :]
         
     if var_filters is not None:
-        for f in var_filters:
-            adata = adata[:, adata.var.query(f).index]
+        var_filter = np.all([adata.var.eval(f) for f in var_filters], axis=0)
+        adata = adata[:, var_filter]
 
     return adata
 
