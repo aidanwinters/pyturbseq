@@ -4,6 +4,7 @@
 #
 ##########################################################################
 
+import warnings 
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -11,11 +12,13 @@ from adjustText import adjust_text
 import numpy as np
 import scanpy as sc
 from scipy.stats import spearmanr, pearsonr
+from scipy.sparse import csr_matrix, issparse
 
-from .utils import cluster_df
+from .utils import cluster_df, get_perturbation_matrix
 from .interaction import get_singles, get_model_fit
 from matplotlib.patches import Patch
 import upsetplot as up 
+
 
 def plot_filters(
     filters: [dict, list],
@@ -61,11 +64,90 @@ def plot_filters(
         **kwargs
         )
 
+def target_gene_heatmap(
+    adata,
+    reference_value,
+    perturbation_column='perturbation',
+    perturbation_gene_map=None,
+    quiet=False,
+    heatmap_kws={},
+    figsize=None,
+    method='log2FC',
+    return_fig=False,
+    # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
+    ):
+
+    #if no perturbation matrix, create one
+    if perturbation_column is not None:
+        if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
+        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False, verbose=not quiet)
+    elif 'perturbation' in adata.obsm.keys():
+        pm = adata.obsm['perturbation']
+    else: 
+        raise ValueError("No perturbation matrix found in adata.obsm. Please provide a perturbation_column or run get_perturbation_matrix first.")
+
+    if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
+
+    #check that the gene a perturbation maps to is actually in adata
+    if perturbation_gene_map is not None:
+        #for now we assume all the perturbations are in the perturbation_gene_map
+        pm.columns = [perturbation_gene_map[x] for x in pm.columns]
+
+    #Warn if np.any(pm.sum(axis=1) > 1)
+    if np.any(pm.sum(axis=1) > 1):
+        warnings.warn("Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap.")
 
 
+    check = [x in adata.var_names for x in pm.columns]
+    if sum(check) == 0:
+        raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
+    elif sum(check) != len(check):
+        if not quiet: print(f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names.")
 
+    genes = pm.columns[pm.columns.isin(adata.var_names)].sort_values()
+    pm = pm.loc[:, pm.columns.sort_values()]
+    gene_vals = adata[:, genes].X
+    #convert to numpy if sparse
+    gene_vals = gene_vals.toarray() if issparse(gene_vals) else gene_vals
 
+    ref_bool = (pm.sum(axis=1) == 0).values
+    ref_mean = gene_vals[ref_bool].mean(axis=0)
 
+    if method not in ['log2FC', 'zscore', 'pct']:
+        raise ValueError(f"Method '{method}' not recognized. Please choose from 'log2FC', 'zscore', 'pct'.")
+    
+    if method == 'log2FC':
+        target_change = np.log2(gene_vals + 1) - np.log2(ref_mean + 1)
+        annot = 'log2FC target'
+    elif method == 'zscore':
+        target_change = (gene_vals - ref_mean) / gene_vals[ref_bool].std(axis=0)
+        annot = 'Zscore target'
+    elif method == 'pct':
+        target_change = ((gene_vals - ref_mean) / ref_mean) * 100
+        annot = 'Pct target change'
+
+    #get average
+    target_change = pm.T @ target_change
+    target_change = target_change.T
+    target_change /= pm.sum(axis=0).values
+
+    #save to df
+    target_change = pd.DataFrame(target_change.T.values, columns=genes, index=genes)
+
+    #plot the heatmap
+    figsize = (0.3*len(target_change.columns), 0.3*len(target_change.index)) if figsize is None else figsize
+    fig, ax = plt.subplots(1,1, figsize=figsize)
+    for key, val in [('center', 0), ('xticklabels', True), ('yticklabels', True), ('cbar_kws', {'label': annot}), ('cmap', 'coolwarm')]:
+        if key not in heatmap_kws.keys():
+            heatmap_kws[key] = val
+    sns.heatmap(target_change, ax=ax, **heatmap_kws)
+    ax.set_xlabel('Target Genes')
+    ax.set_ylabel('Perturbation')
+    # plt.show()
+    if return_fig:
+        return fig
+    else:
+        plt.show()
 
 def plot_adj_matr(
     adata,

@@ -241,6 +241,7 @@ def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool
 
     if gene not in adata.var_names:
         out = {}
+        out['target_gene'] = np.nan
         out['target_gene_expression'] = np.nan
         out['target_reference_mean'] = np.nan
         out['target_reference_std'] = np.nan
@@ -254,6 +255,7 @@ def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool
     reference_target_std = float(np.std(target_gene_expression[ref_bool]))
 
     out = {}
+    out['target_gene'] = gene
     out['target_gene_expression'] = target_gene_expression[perturbed_bool]
     out['target_reference_mean'] = reference_target_mean
     out['target_reference_std'] = reference_target_std
@@ -348,6 +350,7 @@ def calculate_target_change(
     target_gex_matr = np.zeros((adata.shape[0], pm.shape[1]))
     reference_means = np.zeros(pm.shape[1])
     reference_stds = np.zeros(pm.shape[1])
+    target_genes = np.full((adata.shape[0], pm.shape[1]), None)
     for i, (prtb, prtb_bool) in tqdm(enumerate(pm.items()), total=pm.shape[1], disable=quiet):
         prtb_bool = prtb_bool.values
         out = _get_target_change_single_perturbation(adata, prtb, prtb_bool, ref_bool)
@@ -355,6 +358,7 @@ def calculate_target_change(
         zscore_matr[prtb_bool, i] = out['target_zscore']
         log2fc_matr[prtb_bool, i] = out['target_log2fc']
         target_gex_matr[prtb_bool, i] = out['target_gene_expression']
+        target_genes[prtb_bool, i] = out['target_gene']
         reference_means[i] = out['target_reference_mean']
         reference_stds[i] = out['target_reference_std']
 
@@ -363,6 +367,7 @@ def calculate_target_change(
         if not quiet: print(f"Cells with more than 1 perturbation found. Adding to .obsm...")
         final_adata.uns['target_reference_mean'] = reference_means
         final_adata.uns['target_reference_std'] = reference_stds
+        final_adata.obsm['target_gene'] = pd.DataFrame(target_genes, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_pct_change'] = pd.DataFrame(pct_change_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_zscore'] = pd.DataFrame(zscore_matr, index=final_adata.obs.index, columns=pm.columns)
         final_adata.obsm['target_log2fc'] = pd.DataFrame(log2fc_matr, index=final_adata.obs.index, columns=pm.columns)
@@ -373,6 +378,7 @@ def calculate_target_change(
         final_adata.obs['target_reference_std'] = reference_stds[np.argmax(pm.values, axis=1)]
 
         # pm = pm.stack()
+        final_adata.obs[~ref_bool, 'target_gene'] = target_genes[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_log2fc'] = log2fc_matr[pm.values]
