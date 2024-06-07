@@ -77,6 +77,8 @@ def target_gene_heatmap(
     # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
     ):
 
+    if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
+
     #if no perturbation matrix, create one
     if perturbation_column is not None:
         if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
