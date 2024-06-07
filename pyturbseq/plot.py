@@ -134,7 +134,7 @@ def target_gene_heatmap(
     target_change /= pm.sum(axis=0).values
 
     #save to df
-    target_change = pd.DataFrame(target_change.T.values, columns=genes, index=genes)
+    target_change = pd.DataFrame(target_change.T.values, columns=genes, index=pm.columns)
 
     #plot the heatmap
     figsize = (0.3*len(target_change.columns), 0.3*len(target_change.index)) if figsize is None else figsize

@@ -378,7 +378,7 @@ def calculate_target_change(
         final_adata.obs['target_reference_std'] = reference_stds[np.argmax(pm.values, axis=1)]
 
         # pm = pm.stack()
-        final_adata.obs[~ref_bool, 'target_gene'] = target_genes[pm.values]
+        final_adata.obs.loc[~ref_bool, 'target_gene'] = target_genes[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_pct_change'] = pct_change_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_zscore'] = zscore_matr[pm.values]
         final_adata.obs.loc[~ref_bool, 'target_log2fc'] = log2fc_matr[pm.values]
