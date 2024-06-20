@@ -3,17 +3,35 @@
 # Functions for manipulation and filtering of anndata objects and other data structures
 #
 ##########################################################################
-import scanpy as sc
+
+##IMPORTS
+# Data manipulation and computation
+import numpy as np
 import pandas as pd
-from tqdm import tqdm
-import numpy as np
-from scipy.sparse import csr_matrix
-import numpy as np
-from scipy.spatial.distance import pdist
+from scipy.sparse import csr_matrix, issparse
+from scipy.spatial.distance import pdist, cdist
 from scipy.cluster.hierarchy import linkage, leaves_list
+
+# Visualization
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+# Single-cell analysis
+import scanpy as sc
+from anndata import AnnData
 from adpbulk import ADPBulk
+
+# Parallel processing and warnings
+from joblib import Parallel, delayed
+import warnings
+
+# Progress bar
+from tqdm import tqdm
+
+# Metrics
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_curve
+
+# Regular expressions
 import re
 
 ########################################################################################################################
@@ -91,7 +109,7 @@ def filter_to_feature_type(
 
 def split_by_feature_type(
     adata,
-    # feature_type='Gene Expression'
+    copy=True,
     ):
     """
     Updates an anndata object to only include the GEX feature type in its .X slot. 
@@ -99,7 +117,9 @@ def split_by_feature_type(
     """
     out = {}
     for ftype in adata.var['feature_types'].unique():
-        out[ftype] = adata[:, adata.var['feature_types'] == ftype].copy()
+        out[ftype] = adata[:, adata.var['feature_types'] == ftype]
+        if copy:
+            out[ftype] = out[ftype].copy()
     return out
 
 
@@ -518,7 +538,6 @@ def zscore(
         #if covariates are none then we just apply pseudobulk to the whole matrix (ie single sample)
         return _zscore(adata, **kwargs)
 
-
 def pseudobulk(adata, groupby, **kwargs):
     """
     Function to apply pseudobulk to anndata object
@@ -534,27 +553,52 @@ def pseudobulk(adata, groupby, **kwargs):
 
     return adata
 
-
 ##############################################################################################################################
 ############## DOWNSAMPLE AND SUBSAMPLE FUNCTIONS ############################################################################
 ##############################################################################################################################
 
-#randonly select N cells from each label in column
-def subsample_on_covariate(adata, column, num_cells=100, copy=True):
+import numpy as np
+import random
+import pandas as pd
+from scipy.spatial.distance import cdist
+from scipy.sparse import issparse
+from anndata import AnnData
+from joblib import Parallel, delayed
+import warnings
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_curve
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-    #set num_cells to minimum of all groups
-    num_cells = min(min(adata.obs[column].value_counts()), num_cells)
-    print(num_cells)
-
-    #get the indices of the cells
-    inds = []
-    for group in adata.obs[column].unique():
-        inds.extend(np.random.choice(adata.obs[adata.obs[column] == group].index, num_cells, replace=False))
-
+def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, copy: bool = True) -> AnnData:
+    """
+    Subsamples an AnnData object so that all labels in the specified column have the same number of samples.
+    
+    Parameters:
+        adata (AnnData): The AnnData object containing single-cell data.
+        column (str): The column name in adata.obs to subsample on.
+        num_cells (int): The number of cells to subsample per label (default: None, uses minimum label count).
+        copy (bool): Whether to return a copy of the subsampled AnnData object (default: True).
+        
+    Returns:
+        AnnData: The subsampled AnnData object.
+    
+    Example usage:
+        adata = sc.read_h5ad('path_to_your_data.h5ad')
+        subsampled_adata = subsample_on_covariate(adata, 'cell_type')
+    """
+    # Determine the minimum number of samples for any label
+    min_count = adata.obs[column].value_counts().min()
+    
+    if num_cells:
+        min_count = min(min_count, num_cells)
+    
+    # Subsample the data
+    indices = adata.obs.groupby(column).apply(lambda x: x.sample(min_count)).index.get_level_values(1)
+    
     if copy:
-        return adata[inds, :].copy()
+        return adata[indices].copy()
     else:
-        return adata[inds, :]
+        return adata[indices]
 
 
 def subsample_on_multiple_covariates(adata, columns, num_cells=100, min_cols=None, copy=True):
@@ -602,3 +646,133 @@ def subsample_on_multiple_covariates(adata, columns, num_cells=100, min_cols=Non
         return adata[inds, :].copy()
     else:
         return adata[inds, :]
+
+def _calculate_similarity(matrix_a, matrix_b, metric):
+    """
+    Calculate the pairwise similarity between two matrices.
+    
+    Parameters:
+        matrix_a (np.ndarray): First data matrix.
+        matrix_b (np.ndarray): Second data matrix.
+        metric (str): The similarity metric to use.
+        
+    Returns:
+        np.ndarray: Flattened array of pairwise distances.
+    """
+    distances = cdist(matrix_a, matrix_b, metric)
+    return distances[np.triu_indices_from(distances, k=1)]
+    
+def calculate_label_similarity(
+    adata: AnnData,
+    label_column: str,
+    metric: str = 'euclidean',
+    subset: int = None,
+    group_subset: bool = True,
+    verbose: bool = True,
+    n_jobs: int = 5,
+    subsample: bool = True
+):
+    """
+    Evaluate the similarity of labeling within single cells in an AnnData object.
+    
+    Parameters:
+        adata (AnnData): The AnnData object containing single-cell data.
+        label_column (str): The name of the column in adata.obs that contains the labels.
+        metric (str): The similarity metric to use (default: 'euclidean').
+        subset (int): The number of cells to use as a random subset for the calculation (default: None).
+        group_subset (int): The number of unique labels to compare for across-label similarity (default: None).
+        verbose (bool): Whether to print verbose output (default: False).
+        n_jobs (int): The number of parallel jobs to run (default: 1).
+        subsample (bool): Whether to subsample the data to have equal representation of labels (default: True).
+        
+    Returns:
+        pd.DataFrame: DataFrame containing pairwise similarity results.
+    
+    Example usage:
+        adata = sc.read_h5ad('path_to_your_data.h5ad')
+        similarity_results = calculate_label_similarity(adata, 'cell_type', metric='euclidean', subset=100, group_subset=True, verbose=True, n_jobs=4, subsample=True)
+        print(similarity_results)
+    """
+    if verbose:
+        print(f"Evaluating labeling similarity using metric: {metric}")
+
+    # Ensure the label_column exists
+    if label_column not in adata.obs.columns:
+        raise ValueError(f"{label_column} not found in adata.obs")
+
+    # Subsample the data if requested
+    if subsample:
+        adata = subsample_on_covariate(adata, label_column)
+        if verbose:
+            print(f"\tSubsampled data to have equal representation of labels. Total cells: {adata.n_obs}. Cells per label: {adata.n_obs / len(adata.obs[label_column].unique())}")
+
+    # Extract labels and data matrix
+    labels = adata.obs[label_column]
+    data = adata.X
+
+    # If data is sparse, convert to dense array
+    if issparse(data):
+        data = data.toarray()
+
+    # If subset is specified, randomly sample subset number of cells
+    if subset:
+        if subset > adata.n_obs:
+            warnings.warn(f"Desired subset size ({subset}) is greater than the number of cells in the dataset ({adata.n_obs}). Continuing WITHOUT subsetting...")
+        else:
+            indices = random.sample(range(adata.n_obs), subset)
+            labels = labels.iloc[indices]
+            data = data[indices]
+            if verbose:
+                print(f"\tSubsampled data to {subset} cells")
+
+    unique_labels = labels.unique()
+
+    if verbose:
+        print(f"\tTotal unique groups: {len(unique_labels)}")
+        print(f"\tTotal cells: {data.shape[0]}")
+
+    # Prepare pairs for comparison
+    within_label_pairs = [(unique_labels[I], unique_labels[I]) for I in range(len(unique_labels))]
+
+    # Randomly sample groups if group_subset is specified
+    if group_subset:
+        num_groups = np.ceil(np.sqrt(len(unique_labels) * 2)).astype(int)
+        unique_labels = np.random.choice(unique_labels, num_groups, replace=False)
+        if verbose:
+            print(f"\tSubsetting # of across groups to approx. match # of within group comparisons")
+            print(f"\tTotal across group comparisons: {len(unique_labels) * (len(unique_labels) - 1) / 2}")
+        
+    across_label_pairs = [(unique_labels[I], unique_labels[j]) for I in range(len(unique_labels)) for j in range(I + 1, len(unique_labels))]
+
+    all_pairs = within_label_pairs + across_label_pairs
+    all_pairs_within_label = ['within'] * len(within_label_pairs) + ['across'] * len(across_label_pairs)
+    
+    if verbose: 
+        print(f"\tTotal comparisons: {len(all_pairs)}")
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_calculate_similarity)(data[labels == l1], data[labels == l2], metric)
+        for l1, l2 in all_pairs
+    )
+
+    df = pd.DataFrame({"similarity": np.concatenate(results)})
+    df['label1'] = np.concatenate([[l1] * len(results[I]) for I, (l1, l2) in enumerate(all_pairs)])
+    df['label2'] = np.concatenate([[l2] * len(results[I]) for I, (l1, l2) in enumerate(all_pairs)])
+    df['within'] = df['label1'] == df['label2']
+    return df
+
+def get_average_precision_score(res, *args, **kwargs):
+    """
+    Calculate the average precision score for the labeling similarity in an AnnData object.
+    
+    Parameters:
+        res (pd.DataFrame): DataFrame containing similarity results.
+        
+    Returns:
+        float: The average precision score.
+    
+    Example usage:
+        avg_prec_score = get_average_precision_score(similarity_results)
+        print(f"Average Precision Score: {avg_prec_score:.2f}")
+    """
+    return average_precision_score(~res['within'], res['similarity'])

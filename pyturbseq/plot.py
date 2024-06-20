@@ -14,11 +14,54 @@ import scanpy as sc
 from scipy.stats import spearmanr, pearsonr
 from scipy.sparse import csr_matrix, issparse
 
-from .utils import cluster_df, get_perturbation_matrix
+from .utils import cluster_df, get_perturbation_matrix, get_average_precision_score
 from .interaction import get_singles, get_model_fit
 from matplotlib.patches import Patch
 import upsetplot as up 
+from sklearn.metrics import precision_recall_curve, roc_curve
 
+
+def plot_label_similarity(similarity_results, **kwargs):
+    """
+    Plot the distribution of pairwise similarities between labels in an AnnData object, the AUPRC, and AUROC curves.
+    
+    Parameters:
+        similarity_results (pd.DataFrame): The pairwise similarity results from calculate_label_similarity.
+        **kwargs: Additional keyword arguments to pass to seaborn.histplot.
+    
+    Example usage:
+        plot_label_similarity(similarity_results)
+    """
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # Violin plot for similarities
+    sns.violinplot(x='within', y='similarity', data=similarity_results, ax=axs[0])
+    axs[0].set_xticklabels({True: 'Within', False: 'Across'})
+
+    # Precision-Recall Curve
+    precision, recall, _ = precision_recall_curve(similarity_results['within'], similarity_results['similarity'])
+    baseline = similarity_results['within'].sum() / len(similarity_results['within'])
+    axs[1].plot(recall, precision)
+    axs[1].plot([0, 1], [baseline, baseline], linestyle='--')
+    axs[1].set_xlabel('Recall')
+    axs[1].set_ylabel('Precision')
+    axs[1].set_title('Precision-Recall Curve')
+
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(~similarity_results['within'], similarity_results['similarity'])
+    axs[2].plot(fpr, tpr)
+    axs[2].plot([0, 1], [0, 1], linestyle='--')
+    axs[2].set_xlabel('False Positive Rate')
+    axs[2].set_ylabel('True Positive Rate')
+    axs[2].set_title('ROC Curve')
+
+    # Average Precision and AUROC
+    avg_prec = get_average_precision_score(similarity_results)
+    auroc = np.trapz(tpr, fpr)
+    suptitle = f"Total labels: {len(similarity_results['label1'].unique())} | AUPRC: {avg_prec:.2f} | AUROC: {auroc:.2f}"
+    fig.suptitle(suptitle)
+    fig.tight_layout()
+    plt.show()
 
 def plot_filters(
     filters: [dict, list],
