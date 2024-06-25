@@ -107,6 +107,49 @@ def plot_filters(
         **kwargs
         )
 
+def target_change_heatmap(
+    adata,
+    perturbation_column,
+    quiet=False,
+    heatmap_kws={},
+    figsize=None,
+    method='log2FC',
+    return_fig=False,
+    ):
+
+    if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
+
+    if method not in ['log2fc', 'zscore', 'pct_change']:
+        raise ValueError(f"Method '{method}' not recognized. Please choose from 'log2fc', 'zscore', 'pct_change'.")
+
+    value = 'target_' + method
+    if value not in adata.obsm:
+        raise ValueError(f"Target change metrics not found in adata.obsm. Please run calculate_target_change first. If single perturbation data with 'collapse_to_obs' as False.")
+
+    if value not in adata.obsm:
+        raise ValueError(f"No target change metrics found in adata.obsm. Please run calculate_target_change first. Note: if single perturbation data, ensure 'collapse_to_obs' is set to false")
+    
+    target_change = adata.obsm[value].groupby(adata.obs[perturbation_column]).mean().sort_index(axis=0).sort_index(axis=1)
+    
+    if np.any(adata.obsm['perturbation'].sum(axis=1) > 1):
+        warnings.warn("Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap.")
+
+    #plot the heatmap
+    figsize = (0.3*len(target_change.columns), 0.3*len(target_change.index)) if figsize is None else figsize
+    fig, ax = plt.subplots(1,1, figsize=figsize)
+    for key, val in [('center', 0), ('xticklabels', True), ('yticklabels', True), ('cbar_kws', {'label': value}), ('cmap', 'coolwarm')]:
+        if key not in heatmap_kws.keys():
+            heatmap_kws[key] = val
+    sns.heatmap(target_change, ax=ax, **heatmap_kws)
+    ax.set_xlabel('Target Genes')
+    ax.set_ylabel('Perturbation')
+
+    if return_fig:
+        return fig
+    else:
+        plt.show()
+
+
 def target_gene_heatmap(
     adata,
     reference_value,
@@ -119,6 +162,8 @@ def target_gene_heatmap(
     return_fig=False,
     # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
     ):
+
+    warnings.warn("This function is deprecated. Please use target_change_heatmap instead.")
 
     if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
 

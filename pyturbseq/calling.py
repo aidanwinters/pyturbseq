@@ -353,7 +353,7 @@ def call_hto(
     #confirm that nothing maps to the same group
     if len(set(mapping.values())) != len(mapping):
         # raise ValueError("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
-        warnings.warn("Assignement failed. GMM was not able to confidently assign a distinct component to each HTO.")
+        warnings.warn("Assignment failed. GMM was not able to confidently assign a distinct component to each HTO.")
 
     df = pd.DataFrame({
         'HTO_total_counts': np.sum(x, axis=1),
