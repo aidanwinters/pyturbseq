@@ -113,24 +113,29 @@ def target_change_heatmap(
     quiet=False,
     heatmap_kws={},
     figsize=None,
-    method='log2FC',
+    metric='log2fc',
     return_fig=False,
     ):
 
     if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
 
-    if method not in ['log2fc', 'zscore', 'pct_change']:
-        raise ValueError(f"Method '{method}' not recognized. Please choose from 'log2fc', 'zscore', 'pct_change'.")
+    if metric not in ['log2fc', 'zscore', 'pct_change']:
+        raise ValueError(f"Metric '{metric}' not recognized. Please choose from 'log2fc', 'zscore', 'pct_change'.")
 
-    value = 'target_' + method
+    value = 'target_' + metric
     if value not in adata.obsm:
         raise ValueError(f"Target change metrics not found in adata.obsm. Please run calculate_target_change first. If single perturbation data with 'collapse_to_obs' as False.")
 
     if value not in adata.obsm:
         raise ValueError(f"No target change metrics found in adata.obsm. Please run calculate_target_change first. Note: if single perturbation data, ensure 'collapse_to_obs' is set to false")
     
-    target_change = adata.obsm[value].groupby(adata.obs[perturbation_column]).mean().sort_index(axis=0).sort_index(axis=1)
+    target_change = adata.obsm[value].groupby(adata.obs[perturbation_column]).median().sort_index(axis=0).sort_index(axis=1)
     
+    #check if contains inf
+    if np.any(np.isinf(target_change)):
+        warnings.warn("Some values are infinite. Replacing with NaN.")
+        target_change = target_change.replace([np.inf, -np.inf], np.nan)
+
     if np.any(adata.obsm['perturbation'].sum(axis=1) > 1):
         warnings.warn("Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap.")
 

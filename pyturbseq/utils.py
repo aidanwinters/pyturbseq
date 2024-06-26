@@ -347,10 +347,46 @@ def calculate_target_change(
     quiet: bool = False,
     inplace: bool = True,
     collapse_into_obs: bool = True,
+    **kwargs,
 ) -> Optional[AnnData]:
     """
     Calculate the "percent change" for each cell against a reference.
-    Target
+
+    Parameters:
+    -----------
+    adata : AnnData
+        Annotated data matrix.
+    perturbation_column : str
+        Column in `adata.obs` indicating the perturbations.
+    reference_value : str, optional
+        Value in `perturbation_column` to use as the reference.
+    perturbation_gene_map : dict, optional
+        Mapping from perturbation identifiers to gene names.
+    groupby : str or list of str, optional
+        Columns in `adata.obs` to group by for calculations.
+    check_norm : bool, optional
+        Whether to check and normalize data to counts per cell if necessary.
+    quiet : bool, optional
+        Suppress output messages.
+    inplace : bool, optional
+        Whether to modify the `adata` object in place.
+    collapse_into_obs : bool, optional
+        Whether to collapse the computed metrics into `adata.obs`.
+
+    Returns:
+    --------
+    adata : AnnData, optional
+        Updated AnnData object with calculated metrics if `inplace=False`.
+
+    Example:
+    --------
+    >>> calculate_target_change(adata, 'perturbation', reference_value='NegCtrl', quiet=False, inplace=True)
+
+    Notes:
+    ------
+    This function calculates the percent change in gene expression for each cell 
+    against a reference value (e.g., control cells). The results can be stored 
+    in the `adata` object either in place or returned as a new object.
     """
 
     duplicated_genes = adata.var.index.duplicated()
@@ -361,37 +397,34 @@ def calculate_target_change(
     if sum(duplicated_obs) > 0:
         raise ValueError(f"Observation names are not unique. To make them unique, call `.obs_names_make_unique` before running target change.")
 
-    if not inplace:
-        final_adata = adata.copy()
-    else:
-        final_adata = adata
+    final_adata = adata if inplace else adata.copy()
 
-    if not quiet: print(f"Computing percent change for '{perturbation_column}' across {adata.shape[0]} cells...")
+    if not quiet: print(f"Computing percent change for '{perturbation_column}' across {final_adata.shape[0]} cells...")
 
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
-        if cells_not_normalized(adata):
+        if cells_not_normalized(final_adata):
             if not quiet: print('\t\tData is not normalized to counts per cell. Normalizing...')
-            adata = adata.copy()
-            sc.pp.normalize_total(adata)
+            final_adata.layers['temp_counts'] = final_adata.X.copy()
+            sc.pp.normalize_total(final_adata)
         else:
             if not quiet: print('\t\tData already normalized to counts per cell.')
 
     if not quiet: print('\tComputing percent change for each cell...')
 
-    if isinstance(adata.X, csr_matrix):
-        adata.X = adata.X.toarray()
+    if issparse(final_adata.X):
+        final_adata.X = final_adata.X.toarray()
 
     if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
-    get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=True, verbose=not quiet)
-    pm = adata.obsm['perturbation']
+    get_perturbation_matrix(final_adata, perturbation_column, reference_value=reference_value, inplace=True, verbose=not quiet, **kwargs)
+    pm = final_adata.obsm['perturbation']
 
     if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
 
     if perturbation_gene_map is not None:
         pm.columns = [perturbation_gene_map[x] for x in pm.columns]
 
-    check = [x in adata.var_names for x in pm.columns]
+    check = [x in final_adata.var_names for x in pm.columns]
     if sum(check) == 0:
         raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
     elif sum(check) != len(check):
@@ -406,13 +439,13 @@ def calculate_target_change(
     if groupby is not None:
         groups = final_adata.obs.groupby(groupby).groups
     else:
-        groups = {None: adata.obs.index}
+        groups = {None: final_adata.obs.index}
     
     for group, group_idx in tqdm(groups.items(), desc='Groups', disable=quiet):
         ref_bool = (pm.loc[group_idx].sum(axis=1) == 0).values # get the non perturbed cells for this grouping
         ref_idx = group_idx[ref_bool]
-        for target in tqdm(pm.columns, desc='Perturbations', leave=False, total=pm.shape[1], disable=quiet):
-            out = _get_target_change_single_perturbation_indexed(adata, target, group_idx, ref_idx)
+        for target in tqdm(pm.columns, desc='Perturbations', leave=True, total=pm.shape[1], disable=quiet):
+            out = _get_target_change_single_perturbation_indexed(final_adata, target, group_idx, ref_idx)
             for m in metrics:
                 final_adata.obsm[m].loc[group_idx, target] = out[m]
 
@@ -427,6 +460,10 @@ def calculate_target_change(
             final_adata.obs.loc[inds, m] = final_adata.obsm[m].values[pm.values]
     else:
         if not quiet: print(f"\tMultiple perturbations found. Keeping metrics in .obsm...")
+
+    if 'temp_counts' in final_adata.layers:
+        final_adata.X = final_adata.layers['temp_counts']
+        del final_adata.layers['temp_counts']
 
     if not inplace:
         return final_adata
