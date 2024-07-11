@@ -17,6 +17,7 @@ from scipy.sparse import csr_matrix, issparse
 from .utils import cluster_df, get_perturbation_matrix, get_average_precision_score
 from .interaction import get_singles, get_model_fit
 from matplotlib.patches import Patch
+from matplotlib.collections import PatchCollection
 import upsetplot as up 
 from sklearn.metrics import precision_recall_curve, roc_curve
 
@@ -241,6 +242,59 @@ def target_gene_heatmap(
     # plt.show()
     if return_fig:
         return fig
+    else:
+        plt.show()
+
+
+def dotplot(sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', cluster=True, cluster_kws={}, cluster_on='colors', **kwargs):
+    """
+    Assumes that sizes and colros are dataframes with matching indices and columns
+    """
+
+    assert sizes.shape == colors.shape
+    N, M = sizes.shape
+
+    #confirm index and columns are the same
+    assert all(sizes.index == colors.index)
+    assert all(sizes.columns == colors.columns)
+
+    if cluster:
+        if cluster_on == 'sizes':
+            sizes = cluster_df(sizes, **cluster_kws)
+            colors = colors.loc[sizes.index, sizes.columns]
+        elif cluster_on == 'colors':
+            colors = cluster_df(colors, **cluster_kws)
+            sizes = sizes.loc[colors.index, colors.columns]
+        else:
+            raise ValueError("cluster_on must be 'sizes' or 'colors'")
+
+
+    ylabels = sizes.index
+    xlabels = sizes.columns
+
+    x, y = np.meshgrid(np.arange(M), np.arange(N))
+    s = sizes.values
+    c = colors.values
+
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(M, N))
+
+
+    R = s/s.max()/2
+    circles = [plt.Circle((j,i), radius=r) for r, j, i in zip(R.flat, x.flat, y.flat)]
+    col = PatchCollection(circles, array=c.flatten(), cmap=cmap, )
+    ax.add_collection(col)
+
+    ax.set(xticks=np.arange(M), yticks=np.arange(N),
+        xticklabels=xlabels, yticklabels=ylabels)
+    ax.set_xticks(np.arange(M+1)-0.5, minor=True)
+    ax.set_yticks(np.arange(N+1)-0.5, minor=True)
+    ax.grid(which='minor')
+
+    cbar = ax.figure.colorbar(col, ax=ax, orientation='vertical', pad=0.00)
+    if return_ax:
+        return ax
     else:
         plt.show()
 

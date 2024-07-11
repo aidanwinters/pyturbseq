@@ -630,7 +630,7 @@ from sklearn.metrics import average_precision_score, precision_recall_curve, roc
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, copy: bool = True) -> AnnData:
+def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, copy: bool = True, seed=999) -> AnnData:
     """
     Subsamples an AnnData object so that all labels in the specified column have the same number of samples.
     
@@ -654,7 +654,7 @@ def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, c
         min_count = min(min_count, num_cells)
     
     # Subsample the data
-    indices = adata.obs.groupby(column).apply(lambda x: x.sample(min_count)).index.get_level_values(1)
+    indices = adata.obs.groupby(column).apply(lambda x: x.sample(min_count, random_state=seed)).index.get_level_values(1)
     
     if copy:
         return adata[indices].copy()
@@ -662,7 +662,7 @@ def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, c
         return adata[indices]
 
 
-def subsample_on_multiple_covariates(adata, columns, num_cells=100, min_cols=None, copy=True):
+def subsample_on_multiple_covariates(adata, columns, num_cells=None, min_cols=None, copy=True, seed=999):
     """
     Subsamples the AnnData object based on multiple covariates.
     
@@ -692,10 +692,16 @@ def subsample_on_multiple_covariates(adata, columns, num_cells=100, min_cols=Non
         other_cols = [col for col in columns if col not in min_cols]
         min_counts = group_sizes.groupby(other_cols).agg({'count': 'min'}).reset_index()
         group_sizes = pd.merge(group_sizes[group_sizes.columns[:-1]], min_counts, on=other_cols, how='left')
-        print(group_sizes.sort_values(other_cols))
-    group_sizes['count'] = group_sizes['count'].apply(lambda x: min(x, num_cells))
+    else:
+        # Determine the minimum number of samples for any label
+        min_count = group_sizes['count'].min()
+        if num_cells:
+            min_count = min(min_count, num_cells)
+
+        group_sizes['count'] = group_sizes['count'].apply(lambda x: min(x, min_count))
     
     # Sample indices from each group
+    np.random.seed(seed)
     inds = []
     for _, row in group_sizes.iterrows():
         filter_condition = (adata.obs[columns] == row[columns]).all(axis=1)
