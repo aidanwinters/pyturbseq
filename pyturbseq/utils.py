@@ -214,7 +214,7 @@ def get_perturbation_matrix(
         return pm.loc[adata.obs.index, :]
 
 
-def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
+def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average', metric='euclidean'):
     """
     Reorders a DataFrame based on hierarchical clustering.
     
@@ -223,6 +223,7 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
     - cluster_rows: Whether to cluster and reorder the rows
     - cluster_cols: Whether to cluster and reorder the columns
     - method: Linkage algorithm to use for clustering (e.g., 'average', 'single', 'complete')
+    - metric: Distance metric to use for clustering (e.g., 'euclidean', 'correlation'). Passed directly to scipy.stats.pdist
     
     Returns:
     - DataFrame reordered based on hierarchical clustering.
@@ -230,14 +231,14 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average'):
     
     if cluster_cols:
         # Compute pairwise distances for columns and cluster
-        col_linkage = linkage(pdist(df.T), method=method)
+        col_linkage = linkage(pdist(df.T, metric=metric), method=method)
         # Extract column order from dendrogram
         col_order = leaves_list(col_linkage)
         df = df[df.columns[col_order]]
     
     if cluster_rows:
         # Compute pairwise distances for rows and cluster
-        row_linkage = linkage(pdist(df), method=method)
+        row_linkage = linkage(pdist(df, metric=metric), method=method)
         # Extract row order from dendrogram
         row_order = leaves_list(row_linkage)
         df = df.iloc[row_order]
