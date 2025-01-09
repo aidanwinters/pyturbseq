@@ -400,7 +400,7 @@ def calculate_target_change(
 
     final_adata = adata if inplace else adata.copy()
 
-    if not quiet: print(f"Computing percent change for '{perturbation_column}' across {final_adata.shape[0]} cells...")
+    # if not quiet: print(f"Computing target change for '{perturbation_column}' across {final_adata.shape[0]} cells...")
 
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
@@ -410,8 +410,6 @@ def calculate_target_change(
             sc.pp.normalize_total(final_adata)
         else:
             if not quiet: print('\t\tData already normalized to counts per cell.')
-
-    if not quiet: print('\tComputing percent change for each cell...')
 
     if issparse(final_adata.X):
         final_adata.X = final_adata.X.toarray()
@@ -442,6 +440,8 @@ def calculate_target_change(
     else:
         groups = {None: final_adata.obs.index}
     
+    if not quiet: print('\tComputing target change for each cell...')
+
     for group, group_idx in tqdm(groups.items(), desc='Groups', disable=quiet):
         ref_bool = (pm.loc[group_idx].sum(axis=1) == 0).values # get the non perturbed cells for this grouping
         ref_idx = group_idx[ref_bool]
@@ -526,6 +526,78 @@ def cluster_adjacency(adata, method='leiden', inplace=True, **kwargs):
     else: 
         raise ValueError('method must be either hdbscan or leiden')
 
+def calculate_edistances(adata, obs_key='perturbation', control='control', 
+                        dist='sqeuclidean', sample_correct=True, verbose=True,
+                        use_X=False, obsm_key='X_pca'):
+    """Calculate E-distances between each perturbation and control.
+    
+    Arguments
+    ---------
+    adata: AnnData
+        Annotated data matrix
+    obs_key: str
+        Key in adata.obs specifying the groups
+    control: str or list
+        Control group(s) to compare against
+    dist: str
+        Distance metric for scipy.spatial.distance.cdist
+    sample_correct: bool
+        Whether to use N-1 correction in variance calculations
+    verbose: bool
+        Whether to show progress bar
+    use_X: bool
+        Whether to use adata.X instead of obsm
+    obsm_key: str
+        Key in adata.obsm to use if use_X is False
+        
+    Returns
+    -------
+    pandas.Series
+        E-distances for each perturbation compared to control, with name 'edistance'
+    """
+    control = [control] if isinstance(control, str) else control
+    groups = [g for g in pd.unique(adata.obs[obs_key]) if g not in control]
+    
+    def get_data(adata_subset):
+        if use_X:
+            X = adata_subset.X
+            #check if issparse
+            if issparse(X):
+                return X.toarray()
+            else:
+                return X
+        else:
+            return adata_subset.obsm[obsm_key]
+    
+    control_mask = adata.obs[obs_key].isin(control)
+    control_cells = get_data(adata[control_mask])
+    M = len(control_cells)
+    
+    control_dists = cdist(control_cells, control_cells, metric=dist)
+    factor_c = M / (M-1) if sample_correct else 1
+    sigma_c = np.sum(control_dists) / (M * M) * factor_c
+    
+    edistances = {}
+    iterator = tqdm(groups) if verbose else groups
+    
+    for group in iterator:
+        pert_mask = adata.obs[obs_key] == group
+        pert_cells = get_data(adata[pert_mask])
+        N = len(pert_cells)
+        
+        pert_control_dists = cdist(pert_cells, control_cells, metric=dist)
+        delta = np.sum(pert_control_dists) / (N * M)
+        
+        pert_dists = cdist(pert_cells, pert_cells, metric=dist)
+        factor = N / (N-1) if sample_correct else 1
+        sigma = np.sum(pert_dists) / (N * N) * factor
+        
+        edistance = 2 * delta - sigma - sigma_c
+        edistances[group] = edistance
+    
+    out = pd.Series(edistances)
+    out.name = 'edistance'
+    return out
 
 
 ########################################################################################################################
@@ -844,3 +916,5 @@ def get_average_precision_score(res, *args, **kwargs):
         print(f"Average Precision Score: {avg_prec_score:.2f}")
     """
     return average_precision_score(~res['within'], res['similarity'])
+
+

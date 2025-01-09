@@ -102,7 +102,6 @@ def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n
         except Exception as e:
             print(f"Exception in DESeq2 execution: {e}")
             return pd.DataFrame()
-
     try:
         if parallel:
             available_cpus = multiprocessing.cpu_count()

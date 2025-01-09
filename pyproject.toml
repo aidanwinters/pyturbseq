@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyturbseq"
-version = "0.0.14"
+version = "0.0.15"
 description = "A Python package for perturbational single-cell data"
 readme = "README.md"
 authors = [
