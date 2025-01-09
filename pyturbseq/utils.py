@@ -381,7 +381,7 @@ def calculate_target_change(
 
     Example:
     --------
-    >>> calculate_target_change(adata, 'perturbation', reference_value='NegCtrl', quiet=False, inplace=True)
+    >>> calculate_target_change(adata, 'perturbation', reference_value='control', quiet=False, inplace=True)
 
     Notes:
     ------
@@ -400,7 +400,7 @@ def calculate_target_change(
 
     final_adata = adata if inplace else adata.copy()
 
-    # if not quiet: print(f"Computing target change for '{perturbation_column}' across {final_adata.shape[0]} cells...")
+    if not quiet: print(f"Computing target change for '{perturbation_column}' across {final_adata.shape[0]} cells...")
 
     if check_norm:
         if not quiet: print('\tChecking if data is normalized to counts per cell...')
@@ -420,10 +420,9 @@ def calculate_target_change(
 
     if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
 
-    if perturbation_gene_map is not None:
-        pm.columns = [perturbation_gene_map[x] for x in pm.columns]
+    targets = [perturbation_gene_map[x] if perturbation_gene_map is not None else x for x in pm.columns]
 
-    check = [x in final_adata.var_names for x in pm.columns]
+    check = [x in final_adata.var_names for x in targets]
     if sum(check) == 0:
         raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
     elif sum(check) != len(check):
@@ -445,10 +444,11 @@ def calculate_target_change(
     for group, group_idx in tqdm(groups.items(), desc='Groups', disable=quiet):
         ref_bool = (pm.loc[group_idx].sum(axis=1) == 0).values # get the non perturbed cells for this grouping
         ref_idx = group_idx[ref_bool]
-        for target in tqdm(pm.columns, desc='Perturbations', leave=True, total=pm.shape[1], disable=quiet):
+        for perturbation in tqdm(pm.columns, desc='Perturbations', leave=True, total=pm.shape[1], disable=quiet):
+            target = perturbation_gene_map[perturbation] if perturbation_gene_map is not None else perturbation
             out = _get_target_change_single_perturbation_indexed(final_adata, target, group_idx, ref_idx)
             for m in metrics:
-                final_adata.obsm[m].loc[group_idx, target] = out[m]
+                final_adata.obsm[m].loc[group_idx, perturbation] = out[m]
 
     if not quiet: print('Target change calculation done. Storing in AnnData...')
 
@@ -459,6 +459,9 @@ def calculate_target_change(
         inds = ~(pm.sum(axis=1) == 0)
         for m in metrics:
             final_adata.obs.loc[inds, m] = final_adata.obsm[m].values[pm.values]
+            #delete key from obsm
+            del final_adata.obsm[m]
+
     else:
         if not quiet: print(f"\tMultiple perturbations found. Keeping metrics in .obsm...")
 
