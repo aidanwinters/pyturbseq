@@ -185,72 +185,72 @@ def get_val(df, row_ind, col_ind):
 
 
 
-from umap import UMAP
-import importlib
-import onesense
-importlib.reload(onesense)
-from onesense import onesense
+# from umap import UMAP
+# import importlib
+# import onesense
+# importlib.reload(onesense)
+# from onesense import onesense
 
-metric2term = {
-    'coef_norm2': 'Magnitude',
-    'abs_log10_ratio_coefs': 'Dominance',
-    'dcor_AB_fit': 'Model fit',
-    'dcor_AnB_AB': 'Similarity of singles to double',
-    'dcor_A_B': 'Similarity between singles',
-    'dcor_ratio': 'Equality of contribution'
-}
+# metric2term = {
+#     'coef_norm2': 'Magnitude',
+#     'abs_log10_ratio_coefs': 'Dominance',
+#     'dcor_AB_fit': 'Model fit',
+#     'dcor_AnB_AB': 'Similarity of singles to double',
+#     'dcor_A_B': 'Similarity between singles',
+#     'dcor_ratio': 'Equality of contribution'
+# }
 
-def get_umap(xdata, random_state, **kwargs):
-    transformer = UMAP(random_state=random_state, **kwargs)
-    x = transformer.fit_transform(xdata)
-    return x, random_state
+# def get_umap(xdata, random_state, **kwargs):
+#     transformer = UMAP(random_state=random_state, **kwargs)
+#     x = transformer.fit_transform(xdata)
+#     return x, random_state
 
 
-def get_toms_GI_umap(
-        gi_df,
-        rx=123,
-        ry=456,
-        plot_metric='num_degs',
-        save=None, #path to save the UMAP figure as well as the dataframe itself
-        **kwargs
-        ):
+# def get_toms_GI_umap(
+#         gi_df,
+#         rx=123,
+#         ry=456,
+#         plot_metric='num_degs',
+#         save=None, #path to save the UMAP figure as well as the dataframe itself
+#         **kwargs
+#         ):
 
-    regr_fit = gi_df.copy()
-    xs = regr_fit[['coef_norm2', 'abs_log10_ratio_coefs', 'dcor_AB_fit']]
-    ys = regr_fit[['dcor_AnB_AB', 'dcor_A_B', 'dcor_ratio']]
+#     regr_fit = gi_df.copy()
+#     xs = regr_fit[['coef_norm2', 'abs_log10_ratio_coefs', 'dcor_AB_fit']]
+#     ys = regr_fit[['dcor_AnB_AB', 'dcor_A_B', 'dcor_ratio']]
     
-    x_table = xs.copy()
-    x_table = (x_table)/x_table.std()
-    y_table = ys.copy()
-    y_table = (y_table)/y_table.std()
-    x_table.head(), y_table.head()
+#     x_table = xs.copy()
+#     x_table = (x_table)/x_table.std()
+#     y_table = ys.copy()
+#     y_table = (y_table)/y_table.std()
+#     x_table.head(), y_table.head()
 
-    x, _ = get_umap(x_table, rx, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
-    y, _ = get_umap(y_table, ry, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
+#     x, _ = get_umap(x_table, rx, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
+#     y, _ = get_umap(y_table, ry, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
 
-    x = pd.Series(x.flatten().astype(float), index=x_table.index)
-    y = pd.Series(y.flatten().astype(float), index=y_table.index)
+#     x = pd.Series(x.flatten().astype(float), index=x_table.index)
+#     y = pd.Series(y.flatten().astype(float), index=y_table.index)
 
-    xs_list = [xs[x].values for x in xs.columns]
-    ys_list = [ys[y].values for y in ys.columns]
+#     xs_list = [xs[x].values for x in xs.columns]
+#     ys_list = [ys[y].values for y in ys.columns]
 
-    cx, cy = onesense(x, y, regr_fit[plot_metric], xs_list, ys_list, 
-            xlabels=[metric2term[x] for x in xs.columns], ylabels=[metric2term[x] for x in ys.columns],
-                    label=True,
-                    figsize=[15,15], 
-                    ylims=((0, 1), (0, 1), (0, 1)),
-                    **kwargs)
+#     cx, cy = onesense(x, y, regr_fit[plot_metric], xs_list, ys_list, 
+#             xlabels=[metric2term[x] for x in xs.columns], ylabels=[metric2term[x] for x in ys.columns],
+#                     label=True,
+#                     figsize=[15,15], 
+#                     ylims=((0, 1), (0, 1), (0, 1)),
+#                     **kwargs)
 
-    regr_fit['x_umap'] = x
-    regr_fit['y_umap'] = y
-    regr_fit['x_cluster'] = cx
-    regr_fit['y_cluster'] = cy
+#     regr_fit['x_umap'] = x
+#     regr_fit['y_umap'] = y
+#     regr_fit['x_cluster'] = cx
+#     regr_fit['y_cluster'] = cy
     
-    if save: 
-        regr_fit.to_csv(save + '.csv')
-        plt.savefig(save + '.png', bbox_inches='tight')
+#     if save: 
+#         regr_fit.to_csv(save + '.csv')
+#         plt.savefig(save + '.png', bbox_inches='tight')
 
-    return regr_fit
+#     return regr_fit
 
 
 ##############################################################################################################

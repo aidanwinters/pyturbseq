@@ -112,7 +112,9 @@ def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n
             vp(f"Running DESeq2 synchronously...")
             dfs = [get_deg_worker(condition) for condition in conditions]
         # return pd.concat(dfs)
-        return pd.concat(dfs)
+        res = pd.concat(dfs).reset_index().rename(columns={'index': 'gene'})
+        return res
+        
     except KeyboardInterrupt:
         print("Cancellation requested by user. Shutting down...")
         executor.shutdown(wait=False)
