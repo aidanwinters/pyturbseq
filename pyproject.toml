@@ -27,7 +27,8 @@ dependencies = [
     "adpbulk",
     "anndata",
     "hdbscan",
-    "dcor"
+    "dcor",
+    "upsetplot",
 ]
 requires-python = ">=3.8,<3.12"
 

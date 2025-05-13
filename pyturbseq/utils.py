@@ -249,47 +249,7 @@ def cells_not_normalized(adata):
     dev = np.std(sums)
     return True if dev > 1 else False
 
-def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool):
-    """
-    Compute the "percent change" for each cell against a reference.
-    
-    Parameters:
-    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbed_bool: boolean array indicating which cells are perturbed
-    - gene: gene name
-    - ref_mean: reference mean expression value
-    
-    Returns:
-    - A list of "percent knocked down" for each cell.
-    """
 
-    warnings.warn("This function is deprecated. Please use _get_target_change_single_perturbation_indexed instead.", DeprecationWarning)
-
-    if gene not in adata.var_names:
-        out = {}
-        out['target_gene'] = np.nan
-        out['target_gene_expression'] = np.nan
-        out['target_reference_mean'] = np.nan
-        out['target_reference_std'] = np.nan
-        out['target_pct_change'] = np.nan
-        out['target_zscore'] = np.nan
-        out['target_log2fc'] = np.nan
-        return out
-
-    target_gene_expression = adata[:, gene].X.flatten()
-    reference_target_mean = float(np.mean(target_gene_expression[ref_bool]))
-    reference_target_std = float(np.std(target_gene_expression[ref_bool]))
-
-    out = {}
-    out['target_gene'] = gene
-    out['target_gene_expression'] = target_gene_expression[perturbed_bool]
-    out['target_reference_mean'] = reference_target_mean
-    out['target_reference_std'] = reference_target_std
-    out['target_pct_change'] = ((target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_mean) * 100
-    out['target_zscore'] = (target_gene_expression[perturbed_bool] - reference_target_mean) / reference_target_std
-    out['target_log2fc'] = np.log2((target_gene_expression[perturbed_bool] + 1) / (reference_target_mean+1))
-
-    return out
 def _get_target_change_single_perturbation_indexed(adata, gene, perturbed_inds, ref_inds):
     """
     Compute the "percent change" for each cell against a reference.
