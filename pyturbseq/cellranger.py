@@ -28,7 +28,6 @@ def parse_CR_h5(
         guide_call_csv: Optional path to a guide call ``.csv`` file.
         pattern: Regex pattern used to extract metadata from ``cellranger_h5_path``.
         quiet: If ``True`` suppresses printed output.
-
     Returns:
         AnnData object with optional guide call annotations.
     """
@@ -75,7 +74,6 @@ def parse_umi(x: Any) -> Dict[str, float]:
     Args:
         x: Value from the ``num_umis`` column. Can be a float or pipe delimited
             string of UMI counts.
-
     Returns:
         Dictionary with total UMIs, maximum UMI, and ratio of the second highest
         to the highest UMI count.
@@ -100,7 +98,6 @@ def add_CR_umi_metrics(adata: sc.AnnData) -> sc.AnnData:
 
     Args:
         adata: AnnData object returned by :func:`parse_CR_h5`.
-
     Returns:
         The modified AnnData object with additional columns ``CR_total_umi``,
         ``CR_max_umi`` and ``CR_ratio_2nd_1st`` added to ``adata.obs``.
@@ -125,7 +122,6 @@ def add_CR_sgRNA(
         library_ref_file: Optional reference file for sgRNA library (unused currently).
         inplace: If ``True`` modify ``adata`` in place.
         quiet: If ``True`` suppresses printed output.
-
     Returns:
         Optionally returns a new AnnData object if ``inplace`` is ``False``.
     """
@@ -153,7 +149,6 @@ def parse_CR_flex_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df: DataFrame as read from ``metrics_summary.csv``.
-
     Returns:
         DataFrame with numeric ``Metric Value`` column converted to floats.
     """

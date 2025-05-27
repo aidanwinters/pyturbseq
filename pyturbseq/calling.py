@@ -35,30 +35,17 @@ def gm(
 ) -> np.ndarray:
     """Fit a Gaussian Mixture Model and return confident positive calls.
 
-    Parameters
-    ----------
-    counts:
-        1‑D array of counts for a single feature.
-    n_components:
-        Number of mixture components to fit. Default ``2``.
-    probability_threshold:
-        Probability threshold to call a cell positive.
-    subset:
-        Whether to fit the model on a random subset of the data.
-    subset_minimum:
-        Minimum number of counts to include when ``subset`` is ``True``.
-    nonzero:
-        If ``True`` only non‑zero counts are used.
-    calling_min_count:
-        Minimum observed count required to attempt modelling.
-    seed:
-        Random seed for the mixture model.
-    **kwargs:
-        Additional keyword arguments passed to ``GaussianMixture``.
-
-    Returns
-    -------
-    np.ndarray
+    Args:
+        counts: 1‑D array of counts for a single feature.
+        n_components: Number of mixture components to fit. Default ``2``.
+        probability_threshold: Probability threshold to call a cell positive.
+        subset: Whether to fit the model on a random subset of the data.
+        subset_minimum: Minimum number of counts to include when ``subset`` is ``True``.
+        nonzero: If ``True`` only non‑zero counts are used.
+        calling_min_count: Minimum observed count required to attempt modelling.
+        seed: Random seed for the mixture model.
+        **kwargs: Additional keyword arguments passed to ``GaussianMixture``
+    Returns:
         Boolean array indicating which cells are confidently called positive.
     """
     
@@ -113,29 +100,17 @@ def call_features(
 ) -> Optional[sc.AnnData]:
     """Call features using a Gaussian mixture model on each feature.
 
-    Parameters
-    ----------
-    features:
-        AnnData object with counts stored in ``X``.
-    feature_type:
-        Optional ``feature_types`` category to subset before calling.
-    feature_key:
-        Key used to store results in ``obsm`` and ``uns``.
-    min_feature_umi:
-        Unused currently. Maintained for backwards compatibility.
-    n_jobs:
-        Number of jobs for parallel execution.
-    inplace:
-        Modify ``features`` in place when ``True``.
-    quiet:
-        Suppress progress output.
-    **kwargs:
-        Additional arguments forwarded to :func:`gm`.
-
-    Returns
-    -------
-    Optional[sc.AnnData]
-        Returns a new ``AnnData`` object if ``inplace`` is ``False``.
+    Args:
+        features: AnnData object with counts stored in ``X``.
+        feature_type: Optional ``feature_types`` category to subset before calling.
+        feature_key: Key used to store results in ``obsm`` and ``uns``.
+        min_feature_umi: Unused currently. Maintained for backwards compatibility.
+        n_jobs: Number of jobs for parallel execution.
+        inplace: Modify ``features`` in place when ``True``.
+        quiet: Suppress progress output.
+        **kwargs: Additional arguments forwarded to :func:`gm`.
+    Returns:
+        Optional[sc.AnnData]: Returns a new ``AnnData`` object if ``inplace`` is ``False``.
     """
     vp = print if not quiet else lambda *a, **k: None
 
@@ -185,23 +160,14 @@ def calculate_feature_call_metrics(
 ) -> Optional[sc.AnnData]:
     """Compute summary metrics for called features.
 
-    Parameters
-    ----------
-    features:
-        AnnData object with guide calls.
-    feature_type:
-        Optional subset of ``feature_types`` to use.
-    inplace:
-        Update ``features`` in place when ``True``.
-    topN:
-        List of ``n`` values used for cumulative proportion calculations.
-    quiet:
-        If ``True`` suppress progress messages.
-
-    Returns
-    -------
-    Optional[sc.AnnData]
-        New object with metrics if ``inplace`` is ``False``.
+    Args:
+        features: AnnData object with guide calls.
+        feature_type: Optional subset of ``feature_types`` to use.
+        inplace: Update ``features`` in place when ``True``.
+        topN: List of ``n`` values used for cumulative proportion calculations.
+        quiet: If ``True`` suppress progress messages.
+    Returns:
+        Optional[sc.AnnData]: New object with metrics if ``inplace`` is ``False``.
     """
     vp = print if not quiet else lambda *a, **k: None
 
@@ -249,21 +215,24 @@ def parse_dual_guide_df(
     perturbation_extraction = lambda x: x.split('_')[0],
     library_reference: [pd.DataFrame, str] = None,
     feature_key=None
-    ):
+    ) -> pd.DataFrame:
     """
     Parse dual guide calls into a single perturbation annotation.
     This was built to parse calls in the format of 'sgRNA_A|sgRNA_B' into a single perturbation annotation.
 
     Args:
-    calls (pd.DataFrame): DataFrame of calls with columns 'feature_call' and 'num_features'.
-    position_annotation (list): List of two strings indicating the position annotation of the sgRNAs (recommended). If None, then position extraction is used to get position annotations.
-    call_sep (str): Separator between calls.
-    collapse_same_target (bool): Collapse dual perturbations that target the same gene.
-    sort_perturbation (bool): Sort the perturbations in the annotation.
-    perturbation_name (str): Name of the new perturbation annotation.
-    position_extraction (function): Function to extract position annotation from the call.
-    perturbation_extraction (function): Function to extract perturbation annotation from the call.
-    library_reference (pd.DataFrame or str): Reference library to check for perturbations in.
+        calls: DataFrame of calls with columns 'feature_call' and 'num_features'.
+        position_annotation: List of two strings indicating the position annotation of the sgRNAs (recommended). If None, then position extraction is used to get position annotations.
+        call_sep: Separator between calls.
+        collapse_same_target: Collapse dual perturbations that target the same gene.
+        sort_perturbation: Sort the perturbations in the annotation.
+        perturbation_name: Name of the new perturbation annotation.
+        position_extraction: Function to extract position annotation from the call.
+        perturbation_extraction: Function to extract perturbation annotation from the call.
+        library_reference: Reference library to check for perturbations in.
+        feature_key: Key used to store results in ``obsm`` and ``uns``.
+    Returns:
+        pd.DataFrame: DataFrame with the parsed dual guide calls.
     """
 
     num_feature_col = f'num_{feature_key}' if feature_key else 'num_features'
@@ -362,11 +331,9 @@ def CLR(x):
     Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
     
     Args:
-    - 
-    
+        x: numpy array of counts
     Returns:
-    -  A numpy array with the CLR-transformed features.
-    
+        A numpy array with the CLR-transformed features.
     Notes:
     - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
     - The function first applies the log transform (after adding 1 to handle zeros). 
@@ -406,25 +373,15 @@ def call_hto(
 ) -> Optional[sc.AnnData]:
     """Assign cell barcodes to hashed tags using a multivariate GMM.
 
-    Parameters
-    ----------
-    counts:
-        AnnData object containing HTO count data.
-    features:
-        Specific features to use. If ``None`` all features are used.
-    feature_type:
-        Optional ``feature_types`` category to subset ``features``.
-    rename:
-        Column name in ``obs`` to store the final call.
-    probability_threshold:
-        Minimum assignment probability required to keep a call.
-    inplace:
-        Update ``counts`` in place when ``True``.
-
-    Returns
-    -------
-    Optional[sc.AnnData]
-        Returns a new ``AnnData`` object if ``inplace`` is ``False``.
+    Args:
+        counts: AnnData object containing HTO count data.
+        features: Specific features to use. If None all features are used.
+        feature_type: Optional feature_types category to subset features.
+        rename: Column name in obs to store the final call.
+        probability_threshold: Minimum assignment probability required to keep a call.
+        inplace: Update counts in place when True.
+    Returns:
+        Optional[sc.AnnData]: Returns a new AnnData object if inplace is False.
     """
     if (features is None) & (feature_type is None):
         features = counts.var.index
@@ -480,7 +437,16 @@ def call_hto(
 ##random pivot proportion function
 #convert above into function
 def get_pct_count(df: pd.DataFrame, col1: str, col2: str) -> pd.DataFrame:
-    """Return a percentage contingency table for two columns."""
+    """Return a percentage contingency table for two columns.
+    
+    Args:
+        df: Input DataFrame containing the columns to analyze.
+        col1: Name of the first column to use for the contingency table rows.
+        col2: Name of the second column to use for the contingency table columns.
+    Returns:
+        A DataFrame containing the percentage contingency table where each cell
+        represents the percentage of occurrences for each combination of col1 and col2.
+    """
 
     vc = df[[col1, col2]].value_counts().reset_index()
     vc = vc.pivot(index=col1, columns=col2, values="count")
@@ -495,7 +461,19 @@ def binarize_guides(
     threshold_col: str = "UMI_threshold",
     inplace: bool = False,
 ) -> Optional[sc.AnnData]:
-    """Binarize features based on per-feature thresholds."""
+    """Binarize features based on per-feature thresholds.
+    
+    Args:
+        adata: AnnData object containing feature count data.
+        threshold_df: DataFrame with feature thresholds. Index should match adata.var.index.
+        threshold_file: Path to CSV file containing thresholds. Alternative to threshold_df.
+        threshold_col: Column name in threshold_df containing the threshold values.
+        inplace: If True, modify adata in place. If False, return a new AnnData object.
+    Returns:
+        If inplace is False, returns a new AnnData object with binarized features.
+        If inplace is True, returns None and modifies the input adata object.
+        Returns None if no overlapping features are found or invalid inputs provided.
+    """
 
     if threshold_df is None and threshold_file is None:
         print('Must provide either threshold_df or threshold_file')
@@ -533,17 +511,11 @@ def check_calls(
 ) -> np.ndarray:
     """Identify guides present at higher frequency than expected.
 
-    Parameters
-    ----------
-    guide_call_matrix:
-        AnnData with binary guide calls stored in ``X``.
-    expected_max_proportion:
-        Threshold for the maximum expected proportion of cells containing a
-        single guide.
-
-    Returns
-    -------
-    np.ndarray
+    Args:
+        guide_call_matrix: AnnData with binary guide calls stored in ``X``.
+        expected_max_proportion: Threshold for the maximum expected proportion of cells containing a
+            single guide.
+    Returns:
         Array of guide names that exceed the expected proportion.
     """
 
@@ -568,7 +540,18 @@ def plot_guide_cutoff(
     x_log: bool = True,
     y_log: bool = True,
 ) -> plt.Axes:
-    """Plot the distribution of counts for a guide with a threshold line."""
+    """Plot the distribution of counts for a guide with a threshold line.
+    
+    Args:
+        adata: AnnData object containing guide count data.
+        feat: Feature/guide name to plot (should match values in adata.var['gene_ids']).
+        thresh: Threshold value to display as a vertical line on the plot.
+        ax: Matplotlib axes object to plot on. If None, creates a new figure.
+        x_log: If True, apply log10 transformation to x-axis values.
+        y_log: If True, apply log10 scale to y-axis.
+    Returns:
+        The matplotlib axes object containing the plot.
+    """
 
     vals = adata[:, adata.var['gene_ids'] == feat].X.toarray().flatten()
 
@@ -597,8 +580,17 @@ def plot_many_guide_cutoffs(
     ncol: int = 4,
     **kwargs,
 ) -> plt.Figure:
-    """Create a grid of guide cutoff plots."""
-
+    """Create a grid of guide cutoff plots.
+    
+    Args:
+        adata: AnnData object containing guide count data.
+        features: Iterable of feature/guide names to plot.
+        thresholds: Iterable of threshold values corresponding to each feature.
+        ncol: Number of columns in the subplot grid.
+        **kwargs: Additional keyword arguments passed to plot_guide_cutoff.
+    Returns:
+        The matplotlib figure object containing the grid of plots.
+    """
     nrow = int(np.ceil(len(features) / ncol))
     fig, ax = plt.subplots(nrow, ncol, figsize=(ncol * 5, nrow * 5))
     ax = ax.flatten()

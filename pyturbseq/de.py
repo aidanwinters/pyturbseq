@@ -32,7 +32,6 @@ def get_degs(
         alpha: Adjusted p-value cutoff for significance.
         n_cpus: Number of CPUs used by pydeseq2.
         quiet: Suppress verbose output when ``True``.
-
     Returns:
         DataFrame of DESeq2 results for the contrast.
     """
@@ -98,7 +97,6 @@ def get_all_degs(
         max_workers: Maximum number of concurrent tasks.
         quiet: Suppress verbose output.
         **kwargs: Additional keyword arguments passed to :func:`get_degs`.
-
     Returns:
         Concatenated DataFrame of DESeq2 results for each condition.
     """

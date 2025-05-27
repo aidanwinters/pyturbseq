@@ -9,7 +9,14 @@ from tqdm import tqdm
 import numpy as np
 
 def hamming_dist(a: str, b: str) -> float:
-    """Compute the normalized Hamming distance between two strings."""
+    """Compute the normalized Hamming distance between two strings.
+    
+    Args:
+        a: First string.
+        b: Second string.
+    Returns:
+        Normalized Hamming distance between the two strings.
+    """
     return distance.hamming(list(a), list(b))
 
 def hamming_dist_matrix(ref: Iterable[str]) -> np.ndarray:
@@ -17,7 +24,6 @@ def hamming_dist_matrix(ref: Iterable[str]) -> np.ndarray:
 
     Args:
         ref: Iterable of strings, all assumed to be equal length.
-
     Returns:
         A square NumPy array of pairwise Hamming distances.
     """
