@@ -131,17 +131,33 @@ def split_by_feature_type(
 ########################################################################################################################
 #read in the feature call column, split all of them by delimiter 
 def generate_perturbation_matrix(
-    adata,
-    perturbation_col = 'feature_call',
-    delim = '|',
-    reference_value = 'NTC',
-    feature_list = None,
-    keep_ref = False,
-    set_ref_1 = False,
-    return_boolean=True,
-    # sparse = True,
-    verbose = True,
-    ):
+    adata: AnnData,
+    perturbation_col: str = "feature_call",
+    delim: str = "|",
+    reference_value: str = "NTC",
+    feature_list: Optional[Iterable[str]] = None,
+    keep_ref: bool = False,
+    set_ref_1: bool = False,
+    return_boolean: bool = True,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """Generate a binary perturbation matrix from ``adata.obs``.
+
+    Args:
+        adata: AnnData object with a column describing perturbations.
+        perturbation_col: Column in ``adata.obs`` with perturbation calls.
+        delim: Delimiter separating multiple perturbations within a cell.
+        reference_value: Name of the reference perturbation.
+        feature_list: Optional list of perturbations to include.
+        keep_ref: Whether to keep the reference column in the output.
+        set_ref_1: If ``True`` and ``keep_ref`` is ``True`` set all reference
+            values to 1.
+        return_boolean: Return boolean matrix instead of integers.
+        verbose: Print progress messages.
+
+    Returns:
+        DataFrame where rows correspond to cells and columns to perturbations.
+    """
 
     #if there is no feature list, split all the features in the column and build one
     if feature_list is None:
@@ -185,20 +201,23 @@ def generate_perturbation_matrix(
         columns=feature_list)
 
 def get_perturbation_matrix(
-        adata, 
-        perturbation_col = 'feature_call',
-        inplace = True,    
-        **kwargs      
-        ):
-    """
-    Add a perturbation matrix to an anndata object. 
+    adata: AnnData,
+    perturbation_col: str = "feature_call",
+    inplace: bool = True,
+    **kwargs,
+) -> Optional[pd.DataFrame]:
+    """Add or return a perturbation matrix for ``adata``.
+
     Args:
-        adata: anndata object
-        perturbation_col: column in adata.obs that contains the perturbation information
-        feature_list: list of features to include in the perturbation matrix. If None, all features in the perturbation column will be included.
-        inplace: whether to add the perturbation matrix to the adata object or return it
+        adata: AnnData object to annotate.
+        perturbation_col: Column in ``adata.obs`` containing perturbation labels.
+        inplace: If ``True`` store the matrix in ``adata.obsm['perturbation']``.
+        **kwargs: Additional arguments forwarded to
+            :func:`generate_perturbation_matrix`.
+
     Returns:
-        adata object with perturbation matrix in adata.layers['perturbations']
+        If ``inplace`` is ``False`` the generated perturbation matrix is
+        returned as a DataFrame; otherwise ``None``.
     """
     pm = generate_perturbation_matrix(
             adata,
