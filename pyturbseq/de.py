@@ -1,4 +1,5 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Iterable, Optional, List
 from tqdm import tqdm
 import pandas as pd
 from pydeseq2.dds import DeseqDataSet
@@ -12,19 +13,27 @@ import math
 from joblib import Parallel, delayed
 
 
-def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n_cpus=16, quiet=False):
-    """
-    Run DESeq2 analysis on single-cell RNA sequencing data.
-    
-    Parameters:
-    adata (AnnData): AnnData object containing the single-cell RNA-seq data.
-    design_col (str): Column name in adata.obs that contains the design matrix.
-    ref_val (str, optional): Reference value for the design matrix. Defaults to None.
-    n_cpus (int, optional): Number of CPUs to use for DESeq2. Defaults to 16.
-    quiet (bool, optional): Flag to suppress DESeq2 output. Defaults to True.
+def get_degs(
+    adata: "AnnData",
+    design_col: str,
+    covariate_cols: Optional[List[str]] = None,
+    ref_val: Optional[str] = None,
+    alpha: float = 0.05,
+    n_cpus: int = 16,
+    quiet: bool = False,
+) -> pd.DataFrame:
+    """Run DESeq2 differential expression for a single comparison.
 
+    Args:
+        adata: AnnData object containing counts.
+        design_col: Column in ``adata.obs`` describing the experimental design.
+        covariate_cols: Optional list of additional covariates.
+        ref_val: Reference value for ``design_col``.
+        alpha: Adjusted p-value cutoff for significance.
+        n_cpus: Number of CPUs used by pydeseq2.
+        quiet: Suppress verbose output when ``True``.
     Returns:
-    pd.DataFrame: DataFrame containing DESeq2 results.
+        DataFrame of DESeq2 results for the contrast.
     """
 
     ref_level = [design_col, ref_val] if ref_val is not None else None
@@ -64,21 +73,32 @@ def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n
 
     return df
 
-def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n_cpus=8, max_workers=4, quiet=False, **kwargs):
-    """
-    Run DESeq2 analysis in parallel for multiple conditions.
+def get_all_degs(
+    adata: "AnnData",
+    design_col: str,
+    reference: str,
+    conditions: Optional[Iterable[str]] = None,
+    parallel: bool = True,
+    n_cpus: int = 8,
+    max_workers: int = 4,
+    quiet: bool = False,
+    **kwargs,
+) -> pd.DataFrame:
+    """Run DESeq2 for multiple conditions in parallel.
 
-    Parameters:
-    adata (AnnData): AnnData object containing the single-cell RNA-seq data.
-    design_col (str): Column name in adata.obs that contains the design matrix.
-    reference (str): Reference condition for the differential expression test.
-    conditions (list, optional): List of conditions to test against the reference. Defaults to None.
-    n_cpus (int, optional): Number of CPUs to use for each DESeq2 task. Defaults to 8.
-    max_workers (int, optional): Maximum number of parallel tasks. Defaults to 4.
-    quiet (bool, optional): Flag to suppress DESeq2 output. Defaults to False.
-
+    Args:
+        adata: AnnData object with count data.
+        design_col: Column used as the design factor.
+        reference: Reference condition within ``design_col``.
+        conditions: Specific conditions to test. If ``None`` all non-reference
+            values are tested.
+        parallel: Whether to run in parallel using joblib.
+        n_cpus: Number of CPUs per DESeq2 task.
+        max_workers: Maximum number of concurrent tasks.
+        quiet: Suppress verbose output.
+        **kwargs: Additional keyword arguments passed to :func:`get_degs`.
     Returns:
-    pd.DataFrame: Concatenated DataFrame containing results for all conditions.
+        Concatenated DataFrame of DESeq2 results for each condition.
     """
 
     vp = print if not quiet else lambda *a, **k: None

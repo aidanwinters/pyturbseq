@@ -1,3 +1,4 @@
+from typing import Tuple, Dict
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression, TheilSenRegressor
 from scipy.stats import pearsonr, spearmanr
@@ -17,8 +18,16 @@ from dcor import distance_correlation, partial_distance_correlation
 
 
 ## Function may not be necessary but assumes that a perturbation is a single string
-def get_singles(dual, delim="|", ref="NTC"):
-    """Get the single gene perturbation from the dual perturbation"""
+def get_singles(dual, delim="|", ref="NTC") -> Tuple[str, str]:
+    """Get the single gene perturbation from the dual perturbation.
+    
+    Args:
+        dual: Dual perturbation string containing two genes separated by delimiter.
+        delim: Delimiter used to separate genes in the dual perturbation string. Defaults to "|".
+        ref: Reference control gene name. Defaults to "NTC".
+    Returns:
+        Tuple of two strings representing the single gene perturbations.
+    """
     single = dual.split(delim)
     single_a = [single[0], ref]
     single_a.sort()
@@ -29,12 +38,29 @@ def get_singles(dual, delim="|", ref="NTC"):
     return delim.join(single_a), delim.join(single_b)
 
 
-def get_model_fit(data, double, method="robust", targets=None, delim="|", ref="NTC", plot=True, verbose=True):
+def get_model_fit(
+        data, double, method="robust", targets=None, delim="|", ref="NTC", plot=True, verbose=True
+    ) -> Tuple[Dict[str, float], np.ndarray]:
     """
     Tom Norman's approach
     Assumes no observations but many features.
     Assumes that perturbation is index of observations (this is the case for psueodbulked to perturbation)
     Assumes data is pd DataFrame
+    
+    Args:
+        data: Input data as pandas DataFrame or AnnData object with perturbations as index.
+        double: Double perturbation string containing two genes separated by delimiter.
+        method: Regression method to use. Defaults to "robust" (TheilSenRegressor), otherwise uses LinearRegression.
+        targets: List of target genes/features to analyze. If None, uses all columns in data.
+        delim: Delimiter used to separate genes in perturbation strings. Defaults to "|".
+        ref: Reference control gene name. Defaults to "NTC".
+        plot: Whether to generate plots. Defaults to True.
+        verbose: Whether to print verbose output. Defaults to True.
+    
+    Returns:
+        Tuple containing:
+            - Dictionary with model fit metrics including correlations, coefficients, distance correlations, and other statistics.
+            - Array Z containing predicted values from the regression model.
     """
 
     # if data is anndata then make it df
@@ -142,16 +168,16 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", ref="N
     return out, Z
 
 
-def fit_many(data, doubles, **kwargs):
+def fit_many(data, doubles, **kwargs) -> pd.DataFrame:
     res = pd.DataFrame([get_model_fit(data, d, **kwargs)[0] for d in doubles])
     return res.set_index("perturbation")
 
 
-def model_fit_wrapper(data, d, kwargs):
+def model_fit_wrapper(data, d, kwargs) -> Dict[str, float]:
     return get_model_fit(data, d, **kwargs)[0]
 
 
-def fit_many_parallel(data, doubles, processes=4, **kwargs):
+def fit_many_parallel(data, doubles, processes=4, **kwargs) -> pd.DataFrame:
     with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
         # Use executor.map with the top-level function
         results = list(
@@ -171,7 +197,7 @@ def fit_many_parallel(data, doubles, processes=4, **kwargs):
     return res.set_index("perturbation")
 
 
-def get_val(df, row_ind, col_ind):
+def get_val(df, row_ind, col_ind) -> float:
 
     # check if these are in the dataframe
     if not row_ind in df.index:

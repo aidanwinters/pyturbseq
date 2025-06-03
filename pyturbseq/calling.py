@@ -10,6 +10,7 @@ import numpy as np
 import seaborn as sns
 import os
 import warnings
+from typing import Iterable, Optional
 
 from sklearn.mixture import GaussianMixture
 from joblib import Parallel, delayed
@@ -21,16 +22,31 @@ from scipy.sparse import csr_matrix, issparse
 
 ## Functions for feature calling
 
-def gm(counts, n_components=2, probability_threshold=0.5, subset=False, subset_minimum=50, nonzero=False, calling_min_count=1, seed=99, **kwargs):
-    """
-    Fits a Gaussian Mixture Model to the input data.
+def gm(
+    counts: np.ndarray,
+    n_components: int = 2,
+    probability_threshold: float = 0.5,
+    subset: bool = False,
+    subset_minimum: int = 50,
+    nonzero: bool = False,
+    calling_min_count: int = 1,
+    seed: int = 99,
+    **kwargs,
+) -> np.ndarray:
+    """Fit a Gaussian Mixture Model and return confident positive calls.
+
     Args:
-        x: numpy array of data to fit
-        n_components: number of components to fit. Default 2
-        subset: fraction of data to fit on, this speeds up computation. Default 0.2
-        subset_minimum: minimum number of cells to fit on, if subset is too small. Default 50
-        nonzero: whether to subset the data to only include nonzero values. Default True
-        seed: random seed. Default 0
+        counts: 1‑D array of counts for a single feature.
+        n_components: Number of mixture components to fit. Default ``2``.
+        probability_threshold: Probability threshold to call a cell positive.
+        subset: Whether to fit the model on a random subset of the data.
+        subset_minimum: Minimum number of counts to include when ``subset`` is ``True``.
+        nonzero: If ``True`` only non‑zero counts are used.
+        calling_min_count: Minimum observed count required to attempt modelling.
+        seed: Random seed for the mixture model.
+        **kwargs: Additional keyword arguments passed to ``GaussianMixture``
+    Returns:
+        Boolean array indicating which cells are confidently called positive.
     """
     
     counts = counts.reshape(-1, 1)
@@ -72,15 +88,29 @@ def gm(counts, n_components=2, probability_threshold=0.5, subset=False, subset_m
 
     return probs_positive > probability_threshold #return confident (ie above threshold) positive calls
 
-def call_features(features, feature_type=None, feature_key=None, min_feature_umi=1, n_jobs=1, inplace=True, quiet=True, **kwargs):
-    """
-    Accepts an anndata object with adata.X containing the counts of each guide.
-    In parallel, fits a GMM to each guide and returns the predicted class for each guide.
-    Args:
-        features: anndata object with adata.X containing the counts of each guide
+def call_features(
+    features: sc.AnnData,
+    feature_type: Optional[str] = None,
+    feature_key: Optional[str] = None,
+    min_feature_umi: int = 1,
+    n_jobs: int = 1,
+    inplace: bool = True,
+    quiet: bool = True,
+    **kwargs,
+) -> Optional[sc.AnnData]:
+    """Call features using a Gaussian mixture model on each feature.
 
+    Args:
+        features: AnnData object with counts stored in ``X``.
+        feature_type: Optional ``feature_types`` category to subset before calling.
+        feature_key: Key used to store results in ``obsm`` and ``uns``.
+        min_feature_umi: Unused currently. Maintained for backwards compatibility.
+        n_jobs: Number of jobs for parallel execution.
+        inplace: Modify ``features`` in place when ``True``.
+        quiet: Suppress progress output.
+        **kwargs: Additional arguments forwarded to :func:`gm`.
     Returns:
-        anndata object with adata.X containing the predicted class for each guide
+        Optional[sc.AnnData]: Returns a new ``AnnData`` object if ``inplace`` is ``False``.
     """
     vp = print if not quiet else lambda *a, **k: None
 
@@ -122,11 +152,23 @@ def call_features(features, feature_type=None, feature_key=None, min_feature_umi
         return features
 
 def calculate_feature_call_metrics(
-    features,
-    feature_type=None,
-    inplace=True,
-    topN = [1,2],
-    quiet=False):
+    features: sc.AnnData,
+    feature_type: Optional[str] = None,
+    inplace: bool = True,
+    topN: list = [1, 2],
+    quiet: bool = False,
+) -> Optional[sc.AnnData]:
+    """Compute summary metrics for called features.
+
+    Args:
+        features: AnnData object with guide calls.
+        feature_type: Optional subset of ``feature_types`` to use.
+        inplace: Update ``features`` in place when ``True``.
+        topN: List of ``n`` values used for cumulative proportion calculations.
+        quiet: If ``True`` suppress progress messages.
+    Returns:
+        Optional[sc.AnnData]: New object with metrics if ``inplace`` is ``False``.
+    """
     vp = print if not quiet else lambda *a, **k: None
 
     if feature_type is not None:
@@ -156,6 +198,7 @@ def calculate_feature_call_metrics(
 
     if not inplace:
         return features
+    return None
 
 
 ########################################################################################################################
@@ -172,21 +215,24 @@ def parse_dual_guide_df(
     perturbation_extraction = lambda x: x.split('_')[0],
     library_reference: [pd.DataFrame, str] = None,
     feature_key=None
-    ):
+    ) -> pd.DataFrame:
     """
     Parse dual guide calls into a single perturbation annotation.
     This was built to parse calls in the format of 'sgRNA_A|sgRNA_B' into a single perturbation annotation.
 
     Args:
-    calls (pd.DataFrame): DataFrame of calls with columns 'feature_call' and 'num_features'.
-    position_annotation (list): List of two strings indicating the position annotation of the sgRNAs (recommended). If None, then position extraction is used to get position annotations.
-    call_sep (str): Separator between calls.
-    collapse_same_target (bool): Collapse dual perturbations that target the same gene.
-    sort_perturbation (bool): Sort the perturbations in the annotation.
-    perturbation_name (str): Name of the new perturbation annotation.
-    position_extraction (function): Function to extract position annotation from the call.
-    perturbation_extraction (function): Function to extract perturbation annotation from the call.
-    library_reference (pd.DataFrame or str): Reference library to check for perturbations in.
+        calls: DataFrame of calls with columns 'feature_call' and 'num_features'.
+        position_annotation: List of two strings indicating the position annotation of the sgRNAs (recommended). If None, then position extraction is used to get position annotations.
+        call_sep: Separator between calls.
+        collapse_same_target: Collapse dual perturbations that target the same gene.
+        sort_perturbation: Sort the perturbations in the annotation.
+        perturbation_name: Name of the new perturbation annotation.
+        position_extraction: Function to extract position annotation from the call.
+        perturbation_extraction: Function to extract perturbation annotation from the call.
+        library_reference: Reference library to check for perturbations in.
+        feature_key: Key used to store results in ``obsm`` and ``uns``.
+    Returns:
+        pd.DataFrame: DataFrame with the parsed dual guide calls.
     """
 
     num_feature_col = f'num_{feature_key}' if feature_key else 'num_features'
@@ -285,11 +331,9 @@ def CLR(x):
     Implements the Centered Log-Ratio (CLR) transformation often used in compositional data analysis.
     
     Args:
-    - 
-    
+        x: numpy array of counts
     Returns:
-    -  A numpy array with the CLR-transformed features.
-    
+        A numpy array with the CLR-transformed features.
     Notes:
     - Reference: "Visualizing and interpreting single-cell gene expression datasets with similarity weighted nonnegative embedding" (https://doi.org/10.1038/nmeth.4380)
     - The function first applies the log transform (after adding 1 to handle zeros). 
@@ -321,13 +365,23 @@ def _multivariate_clr_gm(
 
 def call_hto(
     counts: sc.AnnData,
-    features=None,
-    feature_type=None,
-    rename=None,
-    probability_threshold=None,
-    inplace=False,
-    ):
-    """
+    features: Optional[Iterable[str]] = None,
+    feature_type: Optional[str] = None,
+    rename: Optional[str] = None,
+    probability_threshold: Optional[float] = None,
+    inplace: bool = False,
+) -> Optional[sc.AnnData]:
+    """Assign cell barcodes to hashed tags using a multivariate GMM.
+
+    Args:
+        counts: AnnData object containing HTO count data.
+        features: Specific features to use. If None all features are used.
+        feature_type: Optional feature_types category to subset features.
+        rename: Column name in obs to store the final call.
+        probability_threshold: Minimum assignment probability required to keep a call.
+        inplace: Update counts in place when True.
+    Returns:
+        Optional[sc.AnnData]: Returns a new AnnData object if inplace is False.
     """
     if (features is None) & (feature_type is None):
         features = counts.var.index
@@ -382,14 +436,44 @@ def call_hto(
 
 ##random pivot proportion function
 #convert above into function
-def get_pct_count(df, col1, col2):
+def get_pct_count(df: pd.DataFrame, col1: str, col2: str) -> pd.DataFrame:
+    """Return a percentage contingency table for two columns.
+    
+    Args:
+        df: Input DataFrame containing the columns to analyze.
+        col1: Name of the first column to use for the contingency table rows.
+        col2: Name of the second column to use for the contingency table columns.
+    Returns:
+        A DataFrame containing the percentage contingency table where each cell
+        represents the percentage of occurrences for each combination of col1 and col2.
+    """
+
     vc = df[[col1, col2]].value_counts().reset_index()
-    vc = vc.pivot(index=col1, columns=col2, values='count')
-    vc = vc.div(vc.sum(axis=1), axis=0)*100
+    vc = vc.pivot(index=col1, columns=col2, values="count")
+    vc = vc.div(vc.sum(axis=1), axis=0) * 100
     return vc
 
 ### function to take threshold mapping file and binarize guide matrix
-def binarize_guides(adata, threshold_df=None, threshold_file=None, threshold_col='UMI_threshold', inplace=False):
+def binarize_guides(
+    adata: sc.AnnData,
+    threshold_df: Optional[pd.DataFrame] = None,
+    threshold_file: Optional[str] = None,
+    threshold_col: str = "UMI_threshold",
+    inplace: bool = False,
+) -> Optional[sc.AnnData]:
+    """Binarize features based on per-feature thresholds.
+    
+    Args:
+        adata: AnnData object containing feature count data.
+        threshold_df: DataFrame with feature thresholds. Index should match adata.var.index.
+        threshold_file: Path to CSV file containing thresholds. Alternative to threshold_df.
+        threshold_col: Column name in threshold_df containing the threshold values.
+        inplace: If True, modify adata in place. If False, return a new AnnData object.
+    Returns:
+        If inplace is False, returns a new AnnData object with binarized features.
+        If inplace is True, returns None and modifies the input adata object.
+        Returns None if no overlapping features are found or invalid inputs provided.
+    """
 
     if threshold_df is None and threshold_file is None:
         print('Must provide either threshold_df or threshold_file')
@@ -412,21 +496,27 @@ def binarize_guides(adata, threshold_df=None, threshold_file=None, threshold_col
     thresholds = threshold_df[threshold_col]
 
     binX = np.greater_equal(adata.X.toarray(), thresholds.values)
-    # if inplace: 
-    #     print('Updating X in place')
-    #     adata.X = csr_matrix(binX.astype(int))
-    # else:
-    print('Creating new X matrix')
-    adata = adata.copy()
-    adata.X = csr_matrix(binX.astype(int))
-    return adata
 
-def check_calls(guide_call_matrix, expected_max_proportion=0.2):
-    """
-    Function to check if a given guide is enriched above expected
-    Args: 
-        guide_call_matrix (ad.AnnData): AnnData object with guide calls in adata.obs['guide']
-        expected_max_proportion (float): expected proportion of cells that should have a given guide
+    if inplace:
+        adata.X = csr_matrix(binX.astype(int))
+        return None
+    print('Creating new X matrix')
+    new_adata = adata.copy()
+    new_adata.X = csr_matrix(binX.astype(int))
+    return new_adata
+
+def check_calls(
+    guide_call_matrix: sc.AnnData,
+    expected_max_proportion: float = 0.2,
+) -> np.ndarray:
+    """Identify guides present at higher frequency than expected.
+
+    Args:
+        guide_call_matrix: AnnData with binary guide calls stored in ``X``.
+        expected_max_proportion: Threshold for the maximum expected proportion of cells containing a
+            single guide.
+    Returns:
+        Array of guide names that exceed the expected proportion.
     """
 
     #for now only check is if a given guide is enriched above expected
@@ -442,8 +532,28 @@ def check_calls(guide_call_matrix, expected_max_proportion=0.2):
     return flagged_guides
 
 
-def plot_guide_cutoff(adata, feat, thresh, ax=None, x_log=True, y_log=True):
-    vals = adata[:,adata.var['gene_ids'] ==  feat].X.toarray().flatten()
+def plot_guide_cutoff(
+    adata: sc.AnnData,
+    feat: str,
+    thresh: float,
+    ax: Optional[plt.Axes] = None,
+    x_log: bool = True,
+    y_log: bool = True,
+) -> plt.Axes:
+    """Plot the distribution of counts for a guide with a threshold line.
+    
+    Args:
+        adata: AnnData object containing guide count data.
+        feat: Feature/guide name to plot (should match values in adata.var['gene_ids']).
+        thresh: Threshold value to display as a vertical line on the plot.
+        ax: Matplotlib axes object to plot on. If None, creates a new figure.
+        x_log: If True, apply log10 transformation to x-axis values.
+        y_log: If True, apply log10 scale to y-axis.
+    Returns:
+        The matplotlib axes object containing the plot.
+    """
+
+    vals = adata[:, adata.var['gene_ids'] == feat].X.toarray().flatten()
 
     if ax is None:
         fig, ax = plt.subplots()
@@ -461,11 +571,28 @@ def plot_guide_cutoff(adata, feat, thresh, ax=None, x_log=True, y_log=True):
     if y_log:
         ylab = ylab + ' (log10)'
     ax.set_ylabel(ylab)
+    return ax
 
-def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
-
-    nrow = int(np.ceil(len(features)/ncol))
-    fig, ax = plt.subplots(nrow, ncol, figsize=(ncol*5, nrow*5))
+def plot_many_guide_cutoffs(
+    adata: sc.AnnData,
+    features: Iterable[str],
+    thresholds: Iterable[float],
+    ncol: int = 4,
+    **kwargs,
+) -> plt.Figure:
+    """Create a grid of guide cutoff plots.
+    
+    Args:
+        adata: AnnData object containing guide count data.
+        features: Iterable of feature/guide names to plot.
+        thresholds: Iterable of threshold values corresponding to each feature.
+        ncol: Number of columns in the subplot grid.
+        **kwargs: Additional keyword arguments passed to plot_guide_cutoff.
+    Returns:
+        The matplotlib figure object containing the grid of plots.
+    """
+    nrow = int(np.ceil(len(features) / ncol))
+    fig, ax = plt.subplots(nrow, ncol, figsize=(ncol * 5, nrow * 5))
     ax = ax.flatten()
     # rand_feats = np.random.choice(thresholds.index, 10)
 
@@ -473,6 +600,7 @@ def plot_many_guide_cutoffs(adata, features, thresholds, ncol=4, **kwargs):
         plot_guide_cutoff(adata, f, t, ax=ax[i], **kwargs)
 
     fig.tight_layout()
+    return fig
 
 
 ########################################################################################################################

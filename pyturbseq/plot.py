@@ -4,6 +4,7 @@
 #
 ##########################################################################
 
+from typing import Union, Optional
 import warnings 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -22,13 +23,16 @@ import upsetplot as up
 from sklearn.metrics import precision_recall_curve, roc_curve
 
 
-def plot_label_similarity(similarity_results, **kwargs):
+def plot_label_similarity(similarity_results, **kwargs) -> plt.Figure:
     """
     Plot the distribution of pairwise similarities between labels in an AnnData object, the AUPRC, and AUROC curves.
     
-    Parameters:
-        similarity_results (pd.DataFrame): The pairwise similarity results from calculate_label_similarity.
+    Args:
+        similarity_results: The pairwise similarity results from calculate_label_similarity.
         **kwargs: Additional keyword arguments to pass to seaborn.histplot.
+    
+    Returns:
+        The matplotlib figure object containing the plots.
     
     Example usage:
         plot_label_similarity(similarity_results)
@@ -65,11 +69,11 @@ def plot_label_similarity(similarity_results, **kwargs):
     plt.show()
 
 def plot_filters(
-    filters: [dict, list],
+    filters: Union[dict, list],
     adata: sc.AnnData,
     axis: str = 'obs',
     **kwargs
-    ):
+    ) -> plt.Figure:
     """
     Plot the filters on as an upset plot.
 
@@ -78,6 +82,8 @@ def plot_filters(
         adata: AnnData object
         axis: Axis to filter on. Default is "obs"
         **kwargs: Additional arguments to pass to upsetplot.plot
+    Returns:
+        The matplotlib figure object containing the upset plot.
     """
 
     #check if list or dict
@@ -116,7 +122,21 @@ def target_change_heatmap(
     figsize=None,
     metric='log2fc',
     return_fig=False,
-    ):
+    ) -> Optional[plt.Figure]:
+    """Generate a heatmap showing target gene changes across perturbations.
+    
+    Args:
+        adata: AnnData object containing perturbation data and target change metrics.
+        perturbation_column: Column name in adata.obs containing perturbation labels.
+        quiet: Whether to suppress progress messages. Defaults to False.
+        heatmap_kws: Additional keyword arguments to pass to seaborn.heatmap. Defaults to {}.
+        figsize: Figure size as (width, height) tuple. If None, automatically calculated based on data dimensions.
+        metric: Target change metric to plot. Options are 'log2fc', 'zscore', 'pct_change'. Defaults to 'log2fc'.
+        return_fig: Whether to return the figure object instead of displaying it. Defaults to False.
+    
+    Returns:
+        Figure object if return_fig is True, otherwise None.
+    """
 
     if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
 
@@ -125,10 +145,18 @@ def target_change_heatmap(
 
     value = 'target_' + metric
     if value not in adata.obsm:
-        raise ValueError(f"Target change metrics not found in adata.obsm. Please run calculate_target_change first. If single perturbation data with 'collapse_to_obs' as False.")
+        raise ValueError(
+            "Target change metrics not found in adata.obsm. "
+            "Please run calculate_target_change first. "
+            "If single perturbation data with 'collapse_to_obs' as False."
+        )
 
     if value not in adata.obsm:
-        raise ValueError(f"No target change metrics found in adata.obsm. Please run calculate_target_change first. Note: if single perturbation data, ensure 'collapse_to_obs' is set to false")
+        raise ValueError(
+            "No target change metrics found in adata.obsm. "
+            "Please run calculate_target_change first. "
+            "Note: if single perturbation data, ensure 'collapse_to_obs' is set to false"
+        )
     
     target_change = adata.obsm[value].groupby(adata.obs[perturbation_column]).median().sort_index(axis=0).sort_index(axis=1)
     
@@ -167,7 +195,22 @@ def target_gene_heatmap(
     method='log2FC',
     return_fig=False,
     # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
-    ):
+    ) -> Optional[plt.Figure]:
+    """Generate a heatmap showing target gene changes across perturbations.
+    
+    Args:
+        adata: AnnData object containing perturbation data.
+        reference_value: Reference value used to identify control cells in the perturbation matrix.
+        perturbation_column: Column name in adata.obs containing perturbation labels. Defaults to 'perturbation'.
+        perturbation_gene_map: Optional dictionary mapping perturbation names to gene names.
+        quiet: Whether to suppress progress messages. Defaults to False.
+        heatmap_kws: Additional keyword arguments to pass to seaborn.heatmap. Defaults to {}.
+        figsize: Figure size as (width, height) tuple. If None, automatically calculated based on data dimensions.
+        method: Method for calculating target gene changes. Options are 'log2FC', 'zscore', 'pct'. Defaults to 'log2FC'.
+        return_fig: Whether to return the figure object instead of displaying it. Defaults to False.
+    Returns:
+        Figure object if return_fig is True, otherwise None.
+    """
 
     warnings.warn("This function is deprecated. Please use target_change_heatmap instead.")
 
@@ -246,9 +289,24 @@ def target_gene_heatmap(
         plt.show()
 
 
-def dotplot(sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', cluster=True, cluster_kws={}, cluster_on='colors', **kwargs):
-    """
-    Assumes that sizes and colros are dataframes with matching indices and columns
+def dotplot(
+        sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', cluster=True, cluster_kws={}, cluster_on='colors', **kwargs
+    ) -> Optional[plt.Axes]:
+    """Create a dot plot where dot sizes and colors represent different data dimensions.
+    
+    Args:
+        sizes: DataFrame containing values that determine dot sizes.
+        colors: DataFrame containing values that determine dot colors. Must have matching indices and columns with sizes.
+        return_ax: Whether to return the axes object instead of displaying the plot. Defaults to False.
+        ax: Existing axes object to plot on. If None, creates new figure and axes.
+        center: Center value for color mapping. Defaults to 0.
+        cmap: Colormap for dot colors. Defaults to 'RdBu'.
+        cluster: Whether to cluster rows and columns. Defaults to True.
+        cluster_kws: Additional keyword arguments to pass to clustering function. Defaults to {}.
+        cluster_on: Which data to use for clustering ('sizes' or 'colors'). Defaults to 'colors'.
+        **kwargs: Additional keyword arguments.
+    Returns:
+        Axes object if return_ax is True, otherwise None.
     """
 
     assert sizes.shape == colors.shape
@@ -306,10 +364,17 @@ def plot_adj_matr(
     col_order=None,
     show=False,
     **kwargs
-    ):
-    """
-    Plot an adjacency matrix with row colors
-    Args:  
+    ) -> None:
+    """Plot an adjacency matrix with optional row and column colors using a clustermap.
+    
+    Args:
+        adata: AnnData object containing adjacency matrix in adata.obsm['adjacency'].
+        row_colors: Row color specification. Can be string (column name from adata.obs), list, array, or Series. Defaults to None.
+        col_colors: Column color specification. Can be string (column name from adata.obs), list, array, or Series. Defaults to None.
+        row_order: Order for row color categories. If None, uses unique values from row_colors. Defaults to None.
+        col_order: Order for column color categories. If None, uses unique values from col_colors. Defaults to None.
+        show: Whether to display the plot. Defaults to False.
+        **kwargs: Additional keyword arguments to pass to seaborn.clustermap.
     """
 
     #check if .obsm['adjacency'] exists
@@ -362,7 +427,17 @@ def plot_adj_matr(
     if show:
         plt.show()
 
-def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs):
+def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs) -> None:
+    """Plot a heatmap comparing single and double perturbation conditions with optional model predictions.
+    
+    Args:
+        data: Input data as pandas DataFrame or AnnData object with perturbations as index.
+        double_condition: Double perturbation string containing two genes separated by delimiter.
+        pred: Whether to include model predictions in the plot. Defaults to False.
+        metric: Metric to display in the plot title when pred is True. Defaults to 'fit_spearmanr'.
+        genes: List of genes to include in the plot. If None, uses all genes in data. Defaults to None.
+        **kwargs: Additional keyword arguments to pass to seaborn.heatmap.
+    """
 
     # if data is anndata then make it df
     if type(data) == sc.AnnData:
@@ -404,25 +479,26 @@ def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr
 
 
 def comparison_plot(
-    pdf,
-    x='x', 
-    y='y',
-    metric='metric',
-    label=True, 
-    to_label=0.1, 
-    yx_line=True,
-    show=False,
-    ):
-    """
-    Plot a comparison between two vectors
+    pdf: pd.DataFrame,
+    x: str = 'x', 
+    y: str = 'y',
+    metric: str = 'metric',
+    label: bool = True, 
+    to_label: float = 0.1, 
+    yx_line: bool = True,
+    show: bool = False,
+    ) -> None:
+    """Plot a comparison between two vectors with optional labeling and y=x line.
+    
     Args:
-        x (pd.Series): x values
-        y (pd.Series): y values
-        label (bool): whether to label the top % of points by metric
-        to_label (float): if < 1, the percent of points to label, if > 1, the number of points to label
-        yx_line (bool): whether to plot a y=x line
-        show (bool): whether to show the plot
-        metric (function): function to use to calculate metric between x and y
+        pdf: DataFrame containing the data to plot.
+        x: Column name for x values. Defaults to 'x'.
+        y: Column name for y values. Defaults to 'y'.
+        metric: Column name for metric used to determine which points to label. Defaults to 'metric'.
+        label: Whether to label the top points by metric. Defaults to True.
+        to_label: If < 1, the percent of points to label; if > 1, the number of points to label. Defaults to 0.1.
+        yx_line: Whether to plot a y=x line. Defaults to True.
+        show: Whether to show the plot. Defaults to False.
     """
 
     #calculate fit and residuals
@@ -447,7 +523,16 @@ def comparison_plot(
     if show:
         plt.show()
 
-def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
+def plot_kd(adata: sc.AnnData, gene: str, ref_val: str, exp_val: str, col: str = 'perturbation') -> None:
+    """Plot histograms comparing gene expression between reference and experimental conditions.
+    
+    Args:
+        adata: AnnData object containing gene expression data.
+        gene: Name of the gene to plot expression for.
+        ref_val: Reference condition value (e.g., control).
+        exp_val: Experimental condition value (e.g., knockdown).
+        col: Column name in adata.obs containing condition labels. Defaults to 'perturbation'.
+    """
     gene_vals = adata[:,gene].X.toarray().flatten()
     ##plot AR for AR KD vs NTC|NTC
     gene_inds = adata.obs[col] == exp_val
@@ -469,20 +554,31 @@ def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
 from scipy.stats import pearsonr
 import matplotlib.pyplot as plt 
 
-def corrfunc(x, y, ax=None, method='spearman', **kws):
-    """Plot the correlation coefficient in the top left hand corner of a plot."""
+def corrfunc(x: np.ndarray, y: np.ndarray, ax: Optional[plt.Axes] = None, method: str = 'spearman', **kws) -> None:
+    """Plot the correlation coefficient in the top left hand corner of a plot.
+    
+    Args:
+        x: Array of x values for correlation calculation.
+        y: Array of y values for correlation calculation.
+        ax: Matplotlib axes object to annotate. If None, uses current axes. Defaults to None.
+        method: Correlation method to use ('spearman' or 'pearson'). Defaults to 'spearman'.
+        **kws: Additional keyword arguments (currently unused).
+    """
     func = spearmanr if method == 'spearman' else pearsonr
     r, _ = func(x, y, nan_policy='omit')
     ax = ax or plt.gca()
     ax.annotate(f'ρ = {r:.2f}', xy=(.1, .9), xycoords=ax.transAxes)
 
-def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
-    """
-    Plot a square plot of x vs y with a y=x line
+def square_plot(x: pd.Series, y: pd.Series, ax: Optional[plt.Axes] = None, show: bool = True, corr: Optional[str] = None, **kwargs) -> None:
+    """Plot a square scatter plot of x vs y with a y=x diagonal line.
+    
     Args:
-        x (pd.Series): x values
-        y (pd.Series): y values
-        ax (matplotlib.axes.Axes): axis to plot on
+        x: Series containing x values.
+        y: Series containing y values.
+        ax: Matplotlib axes object to plot on. If None, creates new figure and axes. Defaults to None.
+        show: Whether to display the plot. Defaults to True.
+        corr: Correlation method to calculate and display ('spearman' or 'pearson'). If None, no correlation is shown. Defaults to None.
+        **kwargs: Additional keyword arguments to pass to seaborn.scatterplot.
     """
     if ax is None:
         fig, ax = plt.subplots(figsize=(5,5))
@@ -516,8 +612,15 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
 
 
 ## plot ratio of top 2 against counts: 
-def plot_top2ratio_counts(features, show=False):
-        #plot QC for guide metrics
+def plot_top2ratio_counts(features: sc.AnnData, show: bool = False) -> sns.JointGrid:
+    """Plot QC metrics showing the relationship between total feature counts and top 2 feature ratio.
+    
+    Args:
+        features: AnnData object containing feature count data with 'log10_total_feature_counts' and 'log2_ratio_2nd_1st_feature' in obs.
+        show: Whether to display the plot. Defaults to False.
+    Returns:
+        Seaborn JointGrid object containing the plot.
+    """
     g = sns.jointplot(data = features.obs, y = 'log10_total_feature_counts', x = 'log2_ratio_2nd_1st_feature', kind = 'hex')
     g.ax_joint.set_ylabel('log10(total counts/cell)')
     g.ax_joint.set_xlabel('log2(2nd top feature / top feature)')
@@ -554,7 +657,17 @@ def plot_top2ratio_counts(features, show=False):
 
 #plot guide call numbers as proportion of all cells
         ## plot num features
-def plot_num_features(features, show=False, ax =None, **kwargs):
+def plot_num_features(features: sc.AnnData, show: bool = False, ax: Optional[plt.Axes] = None, **kwargs) -> plt.Axes:
+    """Plot the distribution of number of feature calls per cell as a bar plot.
+    
+    Args:
+        features: AnnData object containing feature data with 'num_features' column in obs.
+        show: Whether to display the plot. Defaults to False.
+        ax: Matplotlib axes object to plot on. If None, creates new figure and axes. Defaults to None.
+        **kwargs: Additional keyword arguments to pass to seaborn.barplot.
+    Returns:
+        Matplotlib axes object containing the plot.
+    """
     vc = features.obs['num_features'].value_counts()
     vc = vc.sort_index()
     vc = vc/vc.sum() * 100
