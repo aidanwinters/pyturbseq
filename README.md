@@ -18,3 +18,27 @@ then install with pip:
 ```
 pip install pyturbseq
 ```
+
+### Development Install
+
+For development work with testing dependencies:
+
+```bash
+# Clone the repository
+git clone https://github.com/aidanwinters/pyturbseq.git
+cd pyturbseq
+
+# Create and activate conda environment  
+conda create -n pyturbseq python=3.11
+conda activate pyturbseq
+
+# Install in development mode with testing dependencies
+pip install -e ".[dev]"
+```
+
+### Test
+
+Run the test suite:
+```bash
+pytest tests/
+```

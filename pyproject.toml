@@ -23,13 +23,25 @@ dependencies = [
     "fastcluster",
     "adjusttext",
     "pydeseq2",
-    "statsmodels==0.13.5",
+    "statsmodels",
     "adpbulk",
     "anndata",
     "hdbscan",
     "dcor"
 ]
 requires-python = ">=3.8,<3.12"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-xdist>=3.0.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["pyturbseq*"]
+exclude = ["archive*"]
 
 [project.urls]
 repository = "https://github.com/aidanwinters/pyturbseq"

@@ -718,8 +718,10 @@ def zscore(adata: sc.AnnData, covariates: Optional[Union[str, List[str]]] = None
     #get mapping of index val to row val
     # Create a dictionary mapping index to row number
     index_to_row = {index: row for row, index in enumerate(adata.obs.index)}
-    normalized_array = np.empty_like(adata.X.toarray())
-    print(normalized_array.shape)
+    if issparse(adata.X):
+        normalized_array = np.empty_like(adata.X.toarray())
+    else:
+        normalized_array = np.empty_like(adata.X)
 
     #first split the adata into groups based on covariates
     if covariates is not None:
