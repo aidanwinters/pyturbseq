@@ -134,7 +134,7 @@ def generate_perturbation_matrix(
     adata,
     perturbation_col = 'feature_call',
     delim = '|',
-    reference_value = 'NTC',
+    control_value = 'NTC',
     feature_list = None,
     keep_ref = False,
     set_ref_1 = False,
@@ -151,8 +151,8 @@ def generate_perturbation_matrix(
         if verbose:
             print(f"Found {len(feature_list)} unique features.")
 
-    if reference_value not in feature_list:
-        raise ValueError(f"Trying to pass 'reference_value' of '{reference_value}' to 'generate_perturbation_matrix' but not found in feature list")
+    if control_value not in feature_list:
+        raise ValueError(f"Trying to pass 'control_value' of '{control_value}' to 'generate_perturbation_matrix' but not found in feature list")
 
     #create a matrix of zeros with the shape of the number of cells and number of features
     perturbation_matrix = np.zeros((adata.shape[0], len(feature_list)))
@@ -169,10 +169,10 @@ def generate_perturbation_matrix(
 
     if not keep_ref:
         ##remove featutre ref from matrix
-        perturbation_matrix = np.delete(perturbation_matrix, feature_dict[reference_value], axis=1)
-        feature_list = feature_list[feature_list != reference_value]
+        perturbation_matrix = np.delete(perturbation_matrix, feature_dict[control_value], axis=1)
+        feature_list = feature_list[feature_list != control_value]
     elif set_ref_1 and keep_ref:
-        perturbation_matrix[:, feature_dict[reference_value]] = 1
+        perturbation_matrix[:, feature_dict[control_value]] = 1
 
     if return_boolean:
         perturbation_matrix = perturbation_matrix.astype(bool) 
@@ -341,7 +341,7 @@ def unroll_target_change(adata, value):
 def calculate_target_change(
     adata: AnnData,
     perturbation_column,
-    reference_value: Optional[str] = None,
+    control_value: Optional[str] = None,
     perturbation_gene_map: Optional[Dict[str, str]] = None,
     groupby: Optional[Union[str, List[str]]] = None,
     check_norm: bool = True,
@@ -351,42 +351,45 @@ def calculate_target_change(
     **kwargs,
 ) -> Optional[AnnData]:
     """
-    Calculate the "percent change" for each cell against a reference.
+    Calculate target change metrics for perturbation analysis.
 
-    Parameters:
-    -----------
+    Calculate the "percent change" for each cell against a reference.
+    
+    Parameters
+    ----------
     adata : AnnData
         Annotated data matrix.
     perturbation_column : str
-        Column in `adata.obs` indicating the perturbations.
-    reference_value : str, optional
+        Column name containing perturbation information.
+    control_value : str, optional
         Value in `perturbation_column` to use as the reference.
+        If None, no target change calculations are performed.
     perturbation_gene_map : dict, optional
-        Mapping from perturbation identifiers to gene names.
+        Mapping from perturbation labels to target genes.
     groupby : str or list of str, optional
-        Columns in `adata.obs` to group by for calculations.
-    check_norm : bool, optional
-        Whether to check and normalize data to counts per cell if necessary.
-    quiet : bool, optional
-        Suppress output messages.
-    inplace : bool, optional
-        Whether to modify the `adata` object in place.
-    collapse_into_obs : bool, optional
-        Whether to collapse the computed metrics into `adata.obs`.
+        Column(s) to group by when calculating statistics.
+    check_norm : bool, default True
+        Whether to check if data appears normalized.
+    quiet : bool, default False
+        Whether to suppress progress messages.
+    inplace : bool, default True
+        Whether to modify the input AnnData object.
+    collapse_into_obs : bool, default True
+        Whether to add summary statistics to adata.obs.
 
-    Returns:
+    Returns
+    -------
+    AnnData or None
+        Returns modified AnnData if inplace=False, otherwise None.
+
+    Examples
     --------
-    adata : AnnData, optional
-        Updated AnnData object with calculated metrics if `inplace=False`.
+    >>> calculate_target_change(adata, 'perturbation', control_value='control', quiet=False, inplace=True)
 
-    Example:
-    --------
-    >>> calculate_target_change(adata, 'perturbation', reference_value='control', quiet=False, inplace=True)
-
-    Notes:
-    ------
-    This function calculates the percent change in gene expression for each cell 
-    against a reference value (e.g., control cells). The results can be stored 
+    Notes
+    -----
+    This function calculates various target change metrics comparing perturbed cells
+    against a control_value (e.g., control cells). The results can be stored
     in the `adata` object either in place or returned as a new object.
     """
 
@@ -415,7 +418,7 @@ def calculate_target_change(
         final_adata.X = final_adata.X.toarray()
 
     if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
-    get_perturbation_matrix(final_adata, perturbation_column, reference_value=reference_value, inplace=True, verbose=not quiet, **kwargs)
+    get_perturbation_matrix(final_adata, perturbation_column, control_value=control_value, inplace=True, verbose=not quiet, **kwargs)
     pm = final_adata.obsm['perturbation']
 
     if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
@@ -430,7 +433,7 @@ def calculate_target_change(
 
     metrics = ['target_pct_change', 'target_log2fc', 'target_zscore', 'target_gene_expression', 'target_reference_mean', 'target_reference_std'] 
     for m in metrics:
-        final_adata.obsm[m] = pd.DataFrame(index=final_adata.obs.index, columns=pm.columns).fillna(0)
+        final_adata.obsm[m] = pd.DataFrame(index=final_adata.obs.index, columns=pm.columns).fillna(0).infer_objects(copy=False)
     final_adata.obsm['target_gene'] = pd.DataFrame(index=final_adata.obs.index, columns=pm.columns)
     metrics += ['target_gene']
 
@@ -448,7 +451,12 @@ def calculate_target_change(
             target = perturbation_gene_map[perturbation] if perturbation_gene_map is not None else perturbation
             out = _get_target_change_single_perturbation_indexed(final_adata, target, group_idx, ref_idx)
             for m in metrics:
-                final_adata.obsm[m].loc[group_idx, perturbation] = out[m]
+                if m == 'target_gene':
+                    final_adata.obsm[m].loc[group_idx, perturbation] = out[m]
+                else:
+                    # Ensure compatible dtype for numeric metrics
+                    final_adata.obsm[m] = final_adata.obsm[m].astype('float64')
+                    final_adata.obsm[m].loc[group_idx, perturbation] = out[m]
 
     if not quiet: print('Target change calculation done. Storing in AnnData...')
 
@@ -468,7 +476,7 @@ def calculate_target_change(
     if 'temp_counts' in final_adata.layers:
         final_adata.X = final_adata.layers['temp_counts']
         del final_adata.layers['temp_counts']
-
+    
     if not inplace:
         return final_adata
 
@@ -529,78 +537,82 @@ def cluster_adjacency(adata, method='leiden', inplace=True, **kwargs):
     else: 
         raise ValueError('method must be either hdbscan or leiden')
 
-def calculate_edistances(adata, obs_key='perturbation', control='control', 
-                        dist='sqeuclidean', sample_correct=True, verbose=True,
-                        use_X=False, obsm_key='X_pca'):
+def calculate_edistances(adata, obs_key='perturbation', control_value='control',
+                    dist='sqeuclidean', sample_correct=True, verbose=True,
+                    use_X=False, obsm_key='X_pca'):
     """Calculate E-distances between each perturbation and control.
     
-    Arguments
-    ---------
-    adata: AnnData
-        Annotated data matrix
+    This function calculates E-distances comparing each unique perturbation
+    to the specified control group(s).
+    
+    Parameters:
     obs_key: str
-        Key in adata.obs specifying the groups
-    control: str or list
+        Key in adata.obs containing perturbation labels
+    control_value: str or list
         Control group(s) to compare against
     dist: str
-        Distance metric for scipy.spatial.distance.cdist
+        Distance metric for E-distance calculation
     sample_correct: bool
-        Whether to use N-1 correction in variance calculations
+        Whether to apply sample size correction
     verbose: bool
-        Whether to show progress bar
+        Whether to print progress information
     use_X: bool
-        Whether to use adata.X instead of obsm
+        Whether to use adata.X instead of obsm_key
     obsm_key: str
-        Key in adata.obsm to use if use_X is False
+        Key in adata.obsm to use for distance calculation
         
-    Returns
-    -------
-    pandas.Series
+    Returns:
+    pd.DataFrame: 
         E-distances for each perturbation compared to control, with name 'edistance'
     """
-    control = [control] if isinstance(control, str) else control
-    groups = [g for g in pd.unique(adata.obs[obs_key]) if g not in control]
+    control_value = [control_value] if isinstance(control_value, str) else control_value
+    groups = [g for g in pd.unique(adata.obs[obs_key]) if g not in control_value]
     
     def get_data(adata_subset):
         if use_X:
-            X = adata_subset.X
-            #check if issparse
-            if issparse(X):
-                return X.toarray()
-            else:
-                return X
+            return adata_subset.X.toarray() if issparse(adata_subset.X) else adata_subset.X
         else:
             return adata_subset.obsm[obsm_key]
     
-    control_mask = adata.obs[obs_key].isin(control)
+    # Calculate E-distances
+    factor_c = 2
+    results = []
+    
+    control_mask = adata.obs[obs_key].isin(control_value)
     control_cells = get_data(adata[control_mask])
     M = len(control_cells)
     
     control_dists = cdist(control_cells, control_cells, metric=dist)
-    factor_c = M / (M-1) if sample_correct else 1
+    # Sigma_c calculation (within control distances)
     sigma_c = np.sum(control_dists) / (M * M) * factor_c
     
-    edistances = {}
-    iterator = tqdm(groups) if verbose else groups
-    
-    for group in iterator:
+    for group in groups:
         pert_mask = adata.obs[obs_key] == group
         pert_cells = get_data(adata[pert_mask])
         N = len(pert_cells)
         
+        # Delta calculation (between pert and control)
         pert_control_dists = cdist(pert_cells, control_cells, metric=dist)
         delta = np.sum(pert_control_dists) / (N * M)
         
+        # E-distance calculation
+        factor_g = 1 if not sample_correct else 2
         pert_dists = cdist(pert_cells, pert_cells, metric=dist)
-        factor = N / (N-1) if sample_correct else 1
-        sigma = np.sum(pert_dists) / (N * N) * factor
+        sigma_g = np.sum(pert_dists) / (N * N) * factor_g
         
-        edistance = 2 * delta - sigma - sigma_c
-        edistances[group] = edistance
+        edist = delta - sigma_c - sigma_g
+        
+        results.append({
+            'perturbation': group,
+            'edistance': edist,
+            'n_pert': N,
+            'n_control': M
+        })
+        
+        if verbose:
+            print(f"{group}: E-distance = {edist:.4f}")
     
-    out = pd.Series(edistances)
-    out.name = 'edistance'
-    return out
+    return pd.DataFrame(results)
 
 
 ########################################################################################################################
@@ -609,35 +621,19 @@ def calculate_edistances(adata, obs_key='perturbation', control='control',
 ########################################################################################################################
 ########################################################################################################################
 
-def _zscore(adata, ref_col='perturbation', ref_val='NTC|NTC', scale_factor = None,):
+def _zscore(adata, ref_col='perturbation', control_value='NTC|NTC', scale_factor = None,):
     
     ##check if csr matrix
-    if isinstance(adata.X, np.ndarray):
-        arr = adata.X
-    else:
-        arr = adata.X.toarray()
-
-    total_counts = arr.sum(axis=1)
-    if scale_factor is None:
-
-        median_count = np.median(total_counts)
-    else: 
-        median_count = scale_factor
-
-    scaling_factors = median_count / total_counts
-    scaling_factors = scaling_factors[:, np.newaxis] #reshape to be a column vector
-    arr = arr * scaling_factors
-    ref_inds = np.where(adata.obs[ref_col] == ref_val)[0]
-
-    #exit if not ref_inds
+    if issparse(adata.X):
+        adata.X = adata.X.toarray()
+    
+    if scale_factor is not None:
+        adata.X /= scale_factor
+    
+    ref_inds = np.where(adata.obs[ref_col] == control_value)[0]
+    
     if len(ref_inds) == 0:
-        
-        raise ValueError(f"ref_col '{ref_col}' and ref_val '{ref_val}' yielded no results")
-
-    mean = arr[ref_inds,].mean(axis=0)
-    stdev = arr[ref_inds,].std(axis=0)
-    # stdev = np.std(adata[ref_inds,:].X, axis=0)
-    return np.array(np.divide((arr - mean), stdev))
+        raise ValueError(f"ref_col '{ref_col}' and control_value '{control_value}' yielded no results")
 
 def zscore(
         adata, 
@@ -730,7 +726,12 @@ def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, c
         min_count = min(min_count, num_cells)
     
     # Subsample the data
-    indices = adata.obs.groupby(column).apply(lambda x: x.sample(min_count, random_state=seed)).index.get_level_values(1)
+    try:
+        # Try with include_groups parameter (pandas 2.2+)
+        indices = adata.obs.groupby(column, include_groups=False).apply(lambda x: x.sample(min_count, random_state=seed)).index.get_level_values(1)
+    except TypeError:
+        # Fallback for older pandas versions
+        indices = adata.obs.groupby(column).apply(lambda x: x.sample(min_count, random_state=seed)).index.get_level_values(1)
     
     if copy:
         return adata[indices].copy()

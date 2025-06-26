@@ -12,14 +12,14 @@ import math
 from joblib import Parallel, delayed
 
 
-def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n_cpus=16, quiet=False):
+def get_degs(adata, design_col, covariate_cols=None, control_value=None, alpha=0.05, n_cpus=16, quiet=False):
     """
     Run DESeq2 analysis on single-cell RNA sequencing data.
     
     Parameters:
     adata (AnnData): AnnData object containing the single-cell RNA-seq data.
     design_col (str): Column name in adata.obs that contains the design matrix.
-    ref_val (str, optional): Reference value for the design matrix. Defaults to None.
+    control_value (str, optional): Reference value for the design matrix. Defaults to None.
     n_cpus (int, optional): Number of CPUs to use for DESeq2. Defaults to 16.
     quiet (bool, optional): Flag to suppress DESeq2 output. Defaults to True.
 
@@ -27,7 +27,7 @@ def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n
     pd.DataFrame: DataFrame containing DESeq2 results.
     """
 
-    ref_level = [design_col, ref_val] if ref_val is not None else None
+    ref_level = [design_col, control_value] if control_value is not None else None
 
     inference = DefaultInference(n_cpus=n_cpus)
 
@@ -51,10 +51,10 @@ def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n
     dds.deseq2()  # Passing the quiet argument
 
     design_col_categories = adata.obs[design_col].unique()
-    #drop ref_val
-    if ref_val is not None:
-        design_col_categories = design_col_categories[design_col_categories != ref_val]
-    contrast = [design_col] + list(design_col_categories) + [ref_val] 
+    #drop control_value
+    if control_value is not None:
+        design_col_categories = design_col_categories[design_col_categories != control_value]
+    contrast = [design_col] + list(design_col_categories) + [control_value] 
     stat_res = DeseqStats(dds, contrast=contrast, quiet=quiet, inference=inference)
     stat_res.summary()
 
@@ -64,14 +64,14 @@ def get_degs(adata, design_col, covariate_cols=None, ref_val=None, alpha=0.05, n
 
     return df
 
-def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n_cpus=8, max_workers=4, quiet=False, **kwargs):
+def get_all_degs(adata, design_col, control_value, conditions=None, parallel=True, n_cpus=8, max_workers=4, quiet=False, **kwargs):
     """
     Run DESeq2 analysis in parallel for multiple conditions.
 
     Parameters:
     adata (AnnData): AnnData object containing the single-cell RNA-seq data.
     design_col (str): Column name in adata.obs that contains the design matrix.
-    reference (str): Reference condition for the differential expression test.
+    control_value (str): Reference condition for the differential expression test.
     conditions (list, optional): List of conditions to test against the reference. Defaults to None.
     n_cpus (int, optional): Number of CPUs to use for each DESeq2 task. Defaults to 8.
     max_workers (int, optional): Maximum number of parallel tasks. Defaults to 4.
@@ -84,15 +84,15 @@ def get_all_degs(adata, design_col, reference, conditions=None, parallel=True, n
     vp = print if not quiet else lambda *a, **k: None
 
     if conditions is None:
-        conditions = list(set(adata.obs[design_col]) - {reference})
+        conditions = list(set(adata.obs[design_col]) - {control_value})
 
 
     def get_deg_worker(condition):
         try:
             df = get_degs(
-                adata[adata.obs[design_col].isin([condition, reference])],
+                adata[adata.obs[design_col].isin([condition, control_value])],
                 design_col,
-                ref_val=reference,
+                control_value=control_value,
                 n_cpus=n_cpus,
                 quiet=quiet,
                 **kwargs

@@ -158,7 +158,7 @@ def target_change_heatmap(
 
 def target_gene_heatmap(
     adata,
-    reference_value,
+    control_value,
     perturbation_column='perturbation',
     perturbation_gene_map=None,
     quiet=False,
@@ -168,19 +168,38 @@ def target_gene_heatmap(
     return_fig=False,
     # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
     ):
-
-    warnings.warn("This function is deprecated. Please use target_change_heatmap instead.")
-
-    if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
-
-    #if no perturbation matrix, create one
-    if perturbation_column is not None:
-        if not quiet: print(f"\tGenerating perturbation matrix from '{perturbation_column}' column...")
-        pm = get_perturbation_matrix(adata, perturbation_column, reference_value=reference_value, inplace=False, verbose=not quiet)
-    elif 'perturbation' in adata.obsm.keys():
-        pm = adata.obsm['perturbation']
-    else: 
-        raise ValueError("No perturbation matrix found in adata.obsm. Please provide a perturbation_column or run get_perturbation_matrix first.")
+    """
+    Generate a heatmap of target gene expression changes.
+    
+    Parameters:
+    adata: AnnData object
+    control_value: str
+        Value in perturbation_column to use as reference
+    perturbation_column: str
+        Column in adata.obs containing perturbation information
+    perturbation_gene_map: dict, optional
+        Mapping from perturbation labels to target genes
+    quiet: bool
+        Whether to suppress output
+    heatmap_kws: dict
+        Keyword arguments passed to sns.heatmap
+    figsize: tuple, optional
+        Figure size (width, height)
+    method: str
+        Method for calculating changes ('log2FC', 'zscore', etc.)
+    return_fig: bool
+        Whether to return the figure object
+    
+    Returns:
+    matplotlib.figure.Figure (if return_fig=True)
+    """
+    
+    if not quiet:
+        print(f"Generating target gene heatmap with method: {method}")
+        print(f"Using control value: {control_value}")
+    
+    # Generate perturbation matrix
+    pm = get_perturbation_matrix(adata, perturbation_column, control_value=control_value, inplace=False, verbose=not quiet)
 
     if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
 
@@ -447,21 +466,21 @@ def comparison_plot(
     if show:
         plt.show()
 
-def plot_kd(adata, gene, ref_val, exp_val, col='perturbation'):
+def plot_kd(adata, gene, control_value, exp_val, col='perturbation'):
     gene_vals = adata[:,gene].X.toarray().flatten()
     ##plot AR for AR KD vs NTC|NTC
     gene_inds = adata.obs[col] == exp_val
-    NTC_inds = adata.obs[col] == ref_val
+    NTC_inds = adata.obs[col] == control_value
     print(f"Number of obs in NTC: {np.sum(NTC_inds)}")
     print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
 
 
-    plt.hist(gene_vals[NTC_inds], label=ref_val, alpha=0.5, bins=30)
+    plt.hist(gene_vals[NTC_inds], label=control_value, alpha=0.5, bins=30)
     plt.hist(gene_vals[gene_inds], label=exp_val + ' KD', alpha=0.5, bins=30)
     #add mean line for each group
     plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
     plt.axvline(gene_vals[gene_inds].mean(), color='orange')
-    plt.title(f'{exp_val} KD vs {ref_val} for gene {gene}')
+    plt.title(f'{exp_val} KD vs {control_value} for gene {gene}')
     plt.legend()
     plt.show()
 

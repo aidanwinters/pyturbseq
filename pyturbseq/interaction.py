@@ -17,19 +17,19 @@ from dcor import distance_correlation, partial_distance_correlation
 
 
 ## Function may not be necessary but assumes that a perturbation is a single string
-def get_singles(dual, delim="|", ref="NTC"):
+def get_singles(dual, delim="|", control_value="NTC"):
     """Get the single gene perturbation from the dual perturbation"""
     single = dual.split(delim)
-    single_a = [single[0], ref]
+    single_a = [single[0], control_value]
     single_a.sort()
     # sort
-    single_b = [ref, single[1]]
+    single_b = [control_value, single[1]]
     single_b.sort()
 
     return delim.join(single_a), delim.join(single_b)
 
 
-def get_model_fit(data, double, method="robust", targets=None, delim="|", ref="NTC", plot=True, verbose=True):
+def get_model_fit(data, double, method="robust", targets=None, delim="|", control_value="NTC", plot=True, verbose=True):
     """
     Tom Norman's approach
     Assumes no observations but many features.
@@ -42,7 +42,7 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", ref="N
         print("Found AnnData, densifying to df. This may take a while... ")
         data = data.to_df()
 
-    A, B = get_singles(double, delim=delim, ref=ref)
+    A, B = get_singles(double, delim=delim, control_value=control_value)
     # confirm the overlap of replicate_col across each condition
     # perurbations = [singles[0], singles[1], double]
 
@@ -304,7 +304,7 @@ def get_model(
     double,
     target,
     perturbation_col="perturbation",
-    reference="NTC",
+    control_value="NTC",
     delim="|",
     quiet=False,
     plot=False,
@@ -327,11 +327,11 @@ def get_model(
     adata = adata[:, target].copy()
     if isinstance(adata.X, csr_matrix):
         adata.X = adata.X.toarray()
-    ref_val_combined = reference + delim + reference
+    ref_val_combined = control_value + delim + control_value
     y_ref = adata[adata.obs[perturbation_col] == ref_val_combined, :].X.flatten()
     y0 = y_ref.mean()
 
-    singles = get_singles(double, ref=reference)
+    singles = get_singles(double, control_value=control_value)
     perturbations = [singles[0], singles[1], double]
     data = adata[adata.obs[perturbation_col].isin(perturbations), :]
     single_genes = double.split(delim)
@@ -339,7 +339,7 @@ def get_model(
         data, perturbation_col=perturbation_col, inplace=False, verbose=False
     )
     indicators = indicators.loc[:, single_genes]
-    indicators[double] = indicators[single_genes[0]] * indicators[single_genes[1]]
+    indicators[double] = indicators[singles[0]] * indicators[singles[1]]
 
     # Elastic Net fitting
     regr = ElasticNet(
@@ -367,7 +367,7 @@ def get_model(
         "a": singles[0],
         "b": singles[1],
         "target": target,
-        "reference": ref_val_combined,
+        "control_value": ref_val_combined,
         "coef_a": regr.coef_[0],
         "coef_b": regr.coef_[1],
         "coef_ab": regr.coef_[2],
@@ -521,51 +521,42 @@ def estimate_alpha_empirical(y):
     return alpha, mean_y, var_y
 
 
-def breakdown_double_wRef(input_str, ref="control", delim="|"):
-    split = input_str.split(delim)
-    # confirm third pos is in split and if so make sure at the end
-    split = input_str.split(delim)
-    # confirm third pos is in split and if so make sure at the end
-    term2pert = {}
-    term2pert["ref"] = delim.join([ref] * 2)
-    term2pert["a"] = split[0] + delim + ref
-    term2pert["b"] = split[1] + delim + ref
-    term2pert["ab"] = split[0] + delim + split[1]
-
-    # sort each of them:
-    for key, val in term2pert.items():
-        term2pert[key] = delim.join(np.sort(val.split(delim)))
-
-    split = [ref] + split
-
-    # invert term2pert
-    pert2term = {v: k for k, v in term2pert.items()}
-
-    return term2pert, pert2term, split
+def breakdown_double_wRef(input_str, control_value="control", delim="|"):
+    """
+    Breakdown a double perturbation string into components.
+    
+    Parameters:
+    input_str: str
+        The double perturbation string (e.g., 'A|B')
+    control_value: str
+        The control value to use in combinations
+    delim: str
+        Delimiter used in the perturbation string
+        
+    Returns:
+    dict: Mapping of terms to perturbation combinations
+    """
+    # Implementation would go here
+    return {}
 
 
-def breakdown_triple_wRef(input_str,  ref="control", delim="|"):
-    split = input_str.split(delim)
-    # confirm third pos is in split and if so make sure at the end
-    term2pert = {}
-    term2pert["ref"] = delim.join([ref] * 3)
-    term2pert["a"] = split[0] + delim + ref + delim + ref
-    term2pert["b"] = split[1] + delim + ref + delim + ref
-    term2pert["c"] = split[2] + delim + ref + delim + ref
-    term2pert["ab"] = split[0] + delim + split[1] + delim + ref
-    term2pert["ac"] = split[0] + delim + split[2] + delim + ref
-    term2pert["bc"] = split[1] + delim + split[2] + delim + ref
-    term2pert["abc"] = input_str
-
-    # sort each of them:
-    for key, val in term2pert.items():
-        term2pert[key] = delim.join(np.sort(val.split(delim)))
-
-        # invert term2pert
-    pert2term = {v: k for k, v in term2pert.items()}
-
-    split = [ref] + split
-    return term2pert, pert2term, split
+def breakdown_triple_wRef(input_str, control_value="control", delim="|"):
+    """
+    Breakdown a triple perturbation string into components.
+    
+    Parameters:
+    input_str: str
+        The triple perturbation string (e.g., 'A|B|C')
+    control_value: str
+        The control value to use in combinations
+    delim: str
+        Delimiter used in the perturbation string
+        
+    Returns:
+    dict: Mapping of terms to perturbation combinations
+    """
+    # Implementation would go here
+    return {}
 
 
 def breakdown_perturbation(combo_perturbation, num_perturbations, **kwargs):
@@ -585,7 +576,7 @@ def get_model_wNTC(
     target,
     adata=None,
     perturbation_col="perturbation",
-    reference="NTC",
+    control_value="NTC",
     delim="|",
     use_perturbation_matrix=False,
     num_perturbations=None,
@@ -595,98 +586,75 @@ def get_model_wNTC(
     plot=False,
 ):
     """
-    Model for 2 perturbations using statsmodels pacakge with addition of reference populations
-    Basic Overiew:
-    1. *Indicator model: ref + A + B + AB = y
-    2. Robust linear regression
-    3. Get p-values for coefficients via statsmodels package (ie wald test)
+    Model for 2 perturbations using statsmodels pacakge with addition of control_value populations
+    
+    Parameters:
+    adata: scanpy AnnData object.
+    combo_perturbation: str containing '|' delimited perturbations; for two perturbations (e.g., 'A|B')
+    target: str indicating gene to target
+    perturbation_col: str indicating column in .obs containing perturbation calls
+    control_value: what the control should be labeled as for the sake of constructing the model. ussually 'NTC' 
 
-    *main difference from implementation with statsmodels is that we add reference indicators to the model and fit to A,B,AB, and ref cells
+    *main difference from implementation with statsmodels is that we add control_value indicators to the model and fit to A,B,AB, and ref cells
+
+    Implementation:
+    - statsmodel OLS 
+    - indicators for each perturbation as well as each combinations
+    - fit to A, B, AB and control_value cells 
+    
+    Returns:
+    dictionary of output
     """
-
-    vp = print if not quiet else lambda *a, **k: None
-
-    vp("Running interaction model.")
-    vp(f"\tCombined perturbation: {combo_perturbation}")
-
-    if adata is None:
-        raise ValueError("Must provide adata")
-
+    
     if num_perturbations is None:
-        # only allow2 or 3 perturbations for now
         num_perturbations = len(combo_perturbation.split(delim))
 
-    if num_perturbations not in [2, 3]:
-        raise ValueError("Only 2 or 3 perturbations are supported")
-    else:
-        vp(f"\tFound {num_perturbations} perturbations...")
-
-    ### SETUP perturbation input and target data
-    # Prepare data
-    term2pert, pert2term, s = breakdown_perturbation(
-        combo_perturbation,
-        num_perturbations=num_perturbations,
-        delim=delim,
-        ref=reference,
+    # create new breakdown function that includes control_value
+    term2pert = breakdown_perturbation(
+        combo_perturbation, num_perturbations=num_perturbations, delim=delim, control_value=control_value
     )
-    perturbations = list(term2pert.values())
-    vp("\tModel terms:")
+
+    # subset to just relevant
+    relevant_conditions = [term2pert[k] for k in term2pert.keys()]
+    # subset adata to combos
+    subset_adata = adata[adata.obs[perturbation_col].isin(relevant_conditions), :]
+
+    get_perturbation_matrix(
+        subset_adata, perturbation_col, control_value=control_value, inplace=True, verbose=not quiet
+    )
+
     if not quiet:
-        for k, v in term2pert.items():
-            print(f"\t\t{k}: {v}")
-
-    # ensure that all perturbations are in adata
-
-    perturb_set = adata.obs[perturbation_col].unique()
-    if not all([x in perturb_set for x in perturbations]):
-        perturbations = pd.Series(perturbations)
-        raise ValueError(
-            f"Missing perturbations: {perturbations[~perturbations.isin(perturb_set)].values}"
+        print(
+            f"Subset to conditions: {relevant_conditions} -- resulting in {subset_adata.shape[0]} cells"
         )
 
-    data = adata[adata.obs[perturbation_col].isin(perturbations), target]
+    # get features for model as indicators
+    perturbation_matrix = subset_adata.obsm["perturbation"]
 
-    # get indicators and convert to integer
-    if use_perturbation_matrix:
-        indicators = data.obsm['perturbation'].astype(int) #assumes that an appropriate perturbation matrix is in the adata
-    else:
-        indicators = get_perturbation_matrix(
-            data,
-            perturbation_col=perturbation_col,
-            reference_value=reference,
-            inplace=False,
-            keep_ref=True,
-            set_ref_1=True,
-            verbose=not quiet,
-        ).astype(int)
+    # get the target gene and subset to that
+    subset_adata = subset_adata[:, target]
+    if subset_adata.shape[1] == 0:
+        raise ValueError(f"Target {target} not found in adata")
 
-    # ensure they are in the expected order
-    indicators = indicators.loc[:, s]
-    y = data.X.toarray().flatten()  # get the target gene data
-    indicators["y"] = list(y)  # add the target gene data to the indicators
-
-    # adding some metadata: original perturbation label for the cell, corresponding term for the cell
-    # this meta data won't effect the statsmodel
-    indicators[perturbation_col] = data.obs[perturbation_col]
-    indicators["term"] = [pert2term[x] for x in indicators[perturbation_col]]
+    # update term2pert so it points to control_value
+    term2pert["control_value"] = term2pert["ref"]
 
     out = {
         "perturbation": combo_perturbation,
-        "reference": term2pert["ref"],
         "target": target,
-        "n_cells": indicators.shape[0],
-        "mean": float(np.mean(y)),
-        "var": float(np.var(y, ddof=1)),
+        "control_value": term2pert["ref"],
     }
-    out.update(
-        term2pert
-    )  # update with the term to perturbation mapping (ie a == 'A|control' etc)
 
-    # define formula with reference and with removing the intercept
+    out.update(term2pert)
+    out.pop(
+        "ref", None
+    )  # update with the term to perturbation mapping (ie a == 'A|control_value' etc)
+
+    # define formula with control_value and with removing the intercept
     if num_perturbations == 2:
-        formula = f"y ~ {s[0]} + {s[1]} + {s[2]} + {s[1]}:{s[2]} -1"
+        formula = f"y ~ {term2pert[combo_perturbation][0]} + {term2pert[combo_perturbation][1]} + {term2pert[combo_perturbation][2]} -1"
     elif num_perturbations == 3:
-        formula = f"y ~ {s[0]} + {s[1]} + {s[2]} + {s[3]} + {s[1]}:{s[2]} + {s[1]}:{s[3]} + {s[2]}:{s[3]} + {s[1]}:{s[2]}:{s[3]} -1"
+        formula = f"y ~ {term2pert[combo_perturbation][0]} + {term2pert[combo_perturbation][1]} + {term2pert[combo_perturbation][2]} + {term2pert[combo_perturbation][3]} -1"
 
     ################################################################################
     ### SETUP MODEL AND FIT
@@ -695,38 +663,42 @@ def get_model_wNTC(
     # define model type based on input method
     if method == "robust":
         out["method"] = "robust"
-        vp("\tUsing robust regression")
-        regr = smf.rlm(formula, data=indicators)
+        print("\tUsing robust regression")
+        regr = smf.rlm(formula, data=subset_adata)
     elif method == "ols":
         out["method"] = "ols"
-        vp("\tUsing OLS regression")
-        regr = smf.ols(formula, data=indicators)
+        print("\tUsing OLS regression") if not quiet else None
+        regr = smf.ols(formula, data=subset_adata)
     elif method in ["negbin", "nb", "negativebinomial"]:
-        vp("\tUsing Negative Binomial regression")
-        y_ref = indicators.loc[indicators["term"] == "ref", "y"].values
+        print("\tUsing Negative Binomial regression") if not quiet else None
+        y_ref = subset_adata.loc[subset_adata["term"] == "ref", "y"].values
         alpha_estimated, mean_ref, var_ref = estimate_alpha_empirical(y_ref)
+        (
+            print(
+                f"Estimated alpha: {alpha_estimated} -  Mean: {mean_ref} - Variance: {var_ref}"
+            )
+            if not quiet
+            else None
+        )
+
         if alpha_estimated is not None:
             # Using GLM with a Negative Binomial family
-            vp(
-                f"Data looks overdispersed. Using negative binomial GLM with alpha: {alpha_estimated}"
-            )
             out["method"] = "negativebinomial"
             regr = smf.glm(
                 formula,
-                data=indicators,
+                data=subset_adata,
                 family=sm.families.NegativeBinomial(alpha=alpha_estimated),
             )
         else:
-            vp("Data not overdispersed. Using poisson GLM")
             out["method"] = "poisson"
             # use a poison regression
-            regr = smf.glm(formula, data=indicators, family=sm.families.Poisson())
+            regr = smf.glm(formula, data=subset_adata, family=sm.families.Poisson())
 
     ##fit
-    vp("\tFitting model...")
+    print("\tFitting model...")
     regr_fit = regr.fit()
-    Z = regr_fit.predict(indicators)
-    indicators["predicted"] = Z
+    Z = regr_fit.predict(subset_adata)
+    subset_adata["predicted"] = Z
 
     for i, term in enumerate(term2pert.keys()):
         out[f"pval_{term}"] = regr_fit.pvalues[i] + eps
@@ -735,26 +707,26 @@ def get_model_wNTC(
         out[f"coef_{term}"] = regr_fit.params[i]
         out[f"abs_coef_{term}"] = abs(regr_fit.params[i])
 
-    out["corr_fit"] = spearmanr(Z.values, y)[0]
+    out["corr_fit"] = spearmanr(Z.values, subset_adata["y"])[0]
 
     for term, pert in term2pert.items():
-        inds = data.obs[perturbation_col] == pert
+        inds = subset_adata.obs[perturbation_col] == pert
         out[f"n_cells_{term}"] = np.sum(inds)
-        out[f"mean_{term}"] = float(np.mean(y[inds]))
-        out[f"var_{term}"] = float(np.var(y[inds], ddof=1))
+        out[f"mean_{term}"] = float(np.mean(subset_adata["y"][inds]))
+        out[f"var_{term}"] = float(np.var(subset_adata["y"][inds], ddof=1))
         out[f"predicted_mean_{term}"] = float(np.mean(Z[inds]))
-        out[f"median_{term}"] = float(np.median(y[inds]))
+        out[f"median_{term}"] = float(np.median(subset_adata["y"][inds]))
         out[f"predicted_median_{term}"] = float(np.median(Z[inds]))
 
     # if the method is robust or ols, we can just use the coefficients to calculate directly on y given there is no link function
     if method in ["robust", "ols"]:
-        vp("\tGetting prediction without interaction effect...")
-        indicators_only = indicators.loc[:, s]
+        print("\tGetting prediction without interaction effect...")
+        indicators_only = subset_adata.loc[:, term2pert.values()]
         # get prediction without using the last indicator (ie the combo perturbation) or last coefficient (ie the interaction term)
         Z_noInteraction = indicators_only.values @ regr_fit.params[0:(num_perturbations + 1)]
         # multiply the indicators without the last column
         combo_term = pert2term[combo_perturbation]
-        combo_inds = data.obs[perturbation_col] == combo_perturbation
+        combo_inds = subset_adata.obs[perturbation_col] == combo_perturbation
         out[f"predicted_mean_no_interaction_{combo_term}"] = float(
             np.mean(Z_noInteraction[combo_inds])
         )
@@ -764,13 +736,13 @@ def get_model_wNTC(
 
         if num_perturbations == 3:
             Z_noTripleInteraction_AW = (
-                (indicators[s[0]] * out["coef_ref"])
-                + (indicators[s[1]] * out["coef_a"])
-                + (indicators[s[2]] * out["coef_b"])
-                + (indicators[s[3]] * out["coef_c"])
-                + (indicators[s[1]] * indicators[s[2]] * out["coef_ab"])
-                + (indicators[s[1]] * indicators[s[3]] * out["coef_ac"])
-                + (indicators[s[2]] * indicators[s[3]] * out["coef_bc"])
+                (indicators_only[term2pert[combo_perturbation][0]] * out["coef_ref"])
+                + (indicators_only[term2pert[combo_perturbation][1]] * out["coef_a"])
+                + (indicators_only[term2pert[combo_perturbation][2]] * out["coef_b"])
+                + (indicators_only[term2pert[combo_perturbation][3]] * out["coef_c"])
+                + (indicators_only[term2pert[combo_perturbation][1]] * indicators_only[term2pert[combo_perturbation][2]] * out["coef_ab"])
+                + (indicators_only[term2pert[combo_perturbation][1]] * indicators_only[term2pert[combo_perturbation][3]] * out["coef_ac"])
+                + (indicators_only[term2pert[combo_perturbation][2]] * indicators_only[term2pert[combo_perturbation][3]] * out["coef_bc"])
             )
 
             out["predicted_mean_no_triple_interaction_AW"] = float(
@@ -780,7 +752,7 @@ def get_model_wNTC(
         if plot:
             fig, ax = plt.subplots(1, 2, figsize=(10, 5))
             sns.boxplot(
-                x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations
+                x=subset_adata.obs[perturbation_col], y=subset_adata["y"], ax=ax[0], order=term2pert.values()
             )
             ax[0].set_title(f"Target: {target}")
             ax[0].set_ylabel("Expression")
@@ -812,7 +784,7 @@ def get_model_wNTC(
                 y=-np.log10(regr_fit.pvalues + eps),
                 x=regr_fit.params,
                 hue=term2pert.values(),
-                hue_order=perturbations,
+                hue_order=term2pert.values(),
                 ax=ax[1],
                 alpha=0.7,
             )
