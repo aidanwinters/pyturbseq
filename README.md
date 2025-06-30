@@ -3,7 +3,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Author:** Aidan Winters  
+**Author:** Aidan Winters
 **Email:** aidanw@arcinstitute.org
 
 ## Description
@@ -55,34 +55,34 @@ pip install -e ".[dev,test]"
 ## Quick Start
 
 ```python
-import pyturbseq as pts
+import pyturbseq as prtb
 import scanpy as sc
 
 # Load your single-cell perturbation data
 adata = sc.read_h5ad("your_perturbation_data.h5ad")
 
 # Generate perturbation matrix
-pts.utils.get_perturbation_matrix(adata, perturbation_col='feature_call')
+prtb.utils.get_perturbation_matrix(adata, perturbation_col='feature_call')
 
 # Calculate target gene changes
-pts.utils.calculate_target_change(adata, perturbation_column='feature_call')
+prtb.utils.calculate_target_change(adata, perturbation_column='feature_call')
 
 # Perform differential expression analysis
 # Single comparison: compare specific perturbation vs control
-deg_results = pts.de.get_degs(adata, design_col='feature_call', control_value='NTC')
+deg_results = prtb.de.get_degs(adata, design_col='feature_call', control_value='NTC')
 
 # Multiple comparisons: test all perturbations vs control
-all_deg_results = pts.de.get_all_degs(adata, design_col='feature_call', control_value='NTC')
+all_deg_results = prtb.de.get_all_degs(adata, design_col='feature_call', control_value='NTC')
 
 # Analyze genetic interactions (for dual perturbation data)
 # Single interaction: analyze specific dual perturbation
-result, prediction = pts.interaction.get_model_fit(data, 'GENE1|GENE2', ref='NTC')
+result, prediction = prtb.interaction.get_model_fit(data, 'GENE1|GENE2', ref='NTC')
 
 # Multiple interactions: analyze all dual perturbations vs control
-interaction_results = pts.interaction.fit_many(data, dual_perturbation_list, ref='NTC')
+interaction_results = prtb.interaction.fit_many(data, dual_perturbation_list, ref='NTC')
 
 # Generate visualizations
-pts.plot.target_change_heatmap(adata, perturbation_column='feature_call')
+prtb.plot.target_change_heatmap(adata, perturbation_column='feature_call')
 ```
 
 ## Main Modules
@@ -108,7 +108,7 @@ For detailed documentation and tutorials, see the included `Tutorial.ipynb` note
 If you use pyturbseq in your research, please cite:
 
 ```
-Winters, A. (2024). pyturbseq: A Python package for perturbational single-cell data analysis. 
+Winters, A. (2024). pyturbseq: A Python package for perturbational single-cell data analysis.
 ```
 
 ## Support
