@@ -10,6 +10,7 @@ import numpy as np
 import seaborn as sns
 import os
 import warnings
+from typing import Optional, List, Union
 
 from sklearn.mixture import GaussianMixture
 from joblib import Parallel, delayed
@@ -163,14 +164,14 @@ def calculate_feature_call_metrics(
 ########################################################################################################################
 def parse_dual_guide_df(
     calls,
-    position_annotation: list = None,
+    position_annotation: Optional[List] = None,
     call_sep: str = '|',
     collapse_same_target: bool = True,
     sort_perturbation: bool = True,
     perturbation_name: str = 'perturbation',
     position_extraction = lambda x: x.split('_')[-1], #default is last underscore
     perturbation_extraction = lambda x: x.split('_')[0],
-    library_reference: [pd.DataFrame, str] = None,
+    library_reference: Optional[Union[pd.DataFrame, str]] = None,
     feature_key=None
     ):
     """

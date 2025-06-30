@@ -479,6 +479,8 @@ def calculate_target_change(
     
     if not inplace:
         return final_adata
+    else:
+        return None
 
 ############################################################################################################
 ##### Perturbation Similarity Analysis  #####
@@ -702,7 +704,7 @@ from sklearn.metrics import average_precision_score, precision_recall_curve, roc
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def subsample_on_covariate(adata: AnnData, column: str, num_cells: int = None, copy: bool = True, seed=999) -> AnnData:
+def subsample_on_covariate(adata: AnnData, column: str, num_cells: Optional[int] = None, copy: bool = True, seed=999) -> AnnData:
     """
     Subsamples an AnnData object so that all labels in the specified column have the same number of samples.
     
@@ -810,7 +812,7 @@ def calculate_label_similarity(
     adata: AnnData,
     label_column: str,
     metric: str = 'euclidean',
-    subset: int = None,
+    subset: Optional[int] = None,
     group_subset: bool = True,
     verbose: bool = True,
     n_jobs: int = 5,

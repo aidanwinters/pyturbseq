@@ -13,6 +13,7 @@ import numpy as np
 import scanpy as sc
 from scipy.stats import spearmanr, pearsonr
 from scipy.sparse import csr_matrix, issparse
+from typing import Union, List
 
 from .utils import cluster_df, get_perturbation_matrix, get_average_precision_score
 from .interaction import get_singles, get_model_fit
@@ -65,7 +66,7 @@ def plot_label_similarity(similarity_results, **kwargs):
     plt.show()
 
 def plot_filters(
-    filters: [dict, list],
+    filters: Union[dict, List],
     adata: sc.AnnData,
     axis: str = 'obs',
     **kwargs
