@@ -1,50 +1,58 @@
-import statsmodels.api as sm
-from sklearn.linear_model import LinearRegression, TheilSenRegressor
-from scipy.stats import pearsonr, spearmanr
+import concurrent.futures
 
-# from dcor import distance_correlation, partial_distance_correlation
-from sklearn.metrics import r2_score
-from scipy.spatial import distance
-import scanpy as sc
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import concurrent.futures
+import scanpy as sc
+from dcor import distance_correlation
+from scipy.spatial import distance
+from scipy.stats import pearsonr, spearmanr
+from sklearn.linear_model import LinearRegression, TheilSenRegressor
 from tqdm import tqdm
 
-from dcor import distance_correlation, partial_distance_correlation
 
-
-## Function may not be necessary but assumes that a perturbation is a single string
-def get_singles(dual, delim="|", control_value="NTC"):
-    """Get the single gene perturbation from the dual perturbation"""
-    single = dual.split(delim)
-    single_a = [single[0], control_value]
-    single_a.sort()
-    # sort
-    single_b = [control_value, single[1]]
-    single_b.sort()
-
-    return delim.join(single_a), delim.join(single_b)
-
-
-def get_model_fit(data, double, method="robust", targets=None, delim="|", control_value="NTC", plot=True, verbose=True):
+def norman_model(
+    data,
+    double,
+    method="robust",
+    targets=None,
+    delim="|",
+    ref="NTC",
+    plot=True,
+    verbose=True,
+):
     """
-    Tom Norman's approach
+    Tom Norman's approach rewritten by Aidan Winters
     Assumes no observations but many features.
-    Assumes that perturbation is index of observations (this is the case for psueodbulked to perturbation)
+    Assumes that perturbation is index of observations (this is the case for pseudobulked to perturbation)
     Assumes data is pd DataFrame
-    """
 
+    Args:
+        data: DataFrame with perturbations as index and genes as columns
+        double: String representing dual perturbation (e.g., "GENE1|GENE2")
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression
+        targets: List of target genes to analyze (default: all genes)
+        delim: Delimiter for splitting dual perturbations
+        ref: Reference/control value (not used in current implementation)
+        plot: Whether to generate plots (placeholder for future)
+        verbose: Whether to print progress
+
+    Returns:
+        tuple: (metrics_dict, predictions_array)
+    """
     # if data is anndata then make it df
     if type(data) == sc.AnnData:
         print("Found AnnData, densifying to df. This may take a while... ")
         data = data.to_df()
 
-    A, B = get_singles(double, delim=delim, control_value=control_value)
-    # confirm the overlap of replicate_col across each condition
-    # perurbations = [singles[0], singles[1], double]
+    A, B = double.split(delim)
+    if verbose:
+        print("Fitting model for", double)
+        print("\tA:", A, "B:", B)
+
+    # confirm that A, B, and double are in data.index
+    if pd.Series([A, B, double]).isin(data.index).sum() != 3:
+        print("Error: not all perturbations in data")
+        return None, None
 
     # confirm all targets are in data
     if targets is None:
@@ -76,8 +84,7 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", contro
     out["a"] = A
     out["b"] = B
 
-    ##Get corrs
-    # print(spearmanr(a_vals, ab_vals))
+    # Get corrs
     out["corr_a"] = spearmanr(aX, doubleX)[0]
     out["corr_b"] = spearmanr(bX, doubleX)[0]
     out["corr_sum"] = spearmanr(aX + bX, doubleX)[0]
@@ -101,7 +108,6 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", contro
         np.log10(abs(regr.coef_[0]) / abs(regr.coef_[1]))
     )
 
-    # out['coef_abs_log_ratio'] = np.log2(abs(regr.coef_[0]/regr.coef_[1]))
     out["coef_norm"] = np.mean([np.abs(out["coef_a"]), np.abs(out["coef_b"])])
     out["coef_norm2"] = np.sqrt(out["coef_a"] ** 2 + out["coef_b"] ** 2)
     out["score"] = regr.score(X, y)
@@ -113,28 +119,28 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", contro
     # Tom's metrics
     out["dcor_AnB_AB"] = distance_correlation(
         singlesX, doubleX
-    )  ## distance correlation between [A,B] and AB (the double perturbation)
+    )  # distance correlation between [A,B] and AB (the double perturbation)
     out["dcor_A_B"] = distance_correlation(
         aX, bX
-    )  ## distance correlation between A and B
+    )  # distance correlation between A and B
     out["dcor_AnB_fit"] = distance_correlation(
         singlesX, Z
-    )  ## distance correlation between the [A, B] and predicted AB
+    )  # distance correlation between the [A, B] and predicted AB
     out["dcor_AB_fit"] = distance_correlation(
         doubleX, Z
-    )  ## distance correlation between AB and predicted AB
+    )  # distance correlation between AB and predicted AB
     out["dcor_A"] = distance_correlation(
         aX, doubleX
-    )  ## distance correlation between A and predicted AB
+    )  # distance correlation between A and predicted AB
     out["dcor_B"] = distance_correlation(
         bX, doubleX
-    )  ## distance correlation between B and predicted AB
+    )  # distance correlation between B and predicted AB
     out["dcor_A_fit"] = distance_correlation(
         aX, Z
-    )  ## distance correlation between A and predicted AB
+    )  # distance correlation between A and predicted AB
     out["dcor_B_fit"] = distance_correlation(
         bX, Z
-    )  ## distance correlation between B and predicted AB
+    )  # distance correlation between B and predicted AB
     out["min_dcor"] = min(out["dcor_A"], out["dcor_B"])
     out["max_dcor"] = max(out["dcor_A"], out["dcor_B"])
     out["dcor_ratio"] = out["min_dcor"] / out["max_dcor"]
@@ -142,938 +148,133 @@ def get_model_fit(data, double, method="robust", targets=None, delim="|", contro
     return out, Z
 
 
-def fit_many(data, doubles, **kwargs):
-    res = pd.DataFrame([get_model_fit(data, d, **kwargs)[0] for d in doubles])
-    return res.set_index("perturbation")
-
-
-def model_fit_wrapper(data, d, kwargs):
-    return get_model_fit(data, d, **kwargs)[0]
-
-
-def fit_many_parallel(data, doubles, processes=4, **kwargs):
-    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
-        # Use executor.map with the top-level function
-        results = list(
-            tqdm(
-                executor.map(
-                    model_fit_wrapper,
-                    [data] * len(doubles),
-                    doubles,
-                    [kwargs] * len(doubles),
-                ),
-                total=len(doubles),
-            )
-        )
-
-    # Convert results to DataFrame and set index
-    res = pd.DataFrame(results)
-    return res.set_index("perturbation")
-
-
-def get_val(df, row_ind, col_ind):
-
-    # check if these are in the dataframe
-    if not row_ind in df.index:
-        return np.nan
-
-    if not col_ind in df.columns:
-        return np.nan
-
-    else:
-        return df.loc[row_ind, col_ind]
-
-
-
-# from umap import UMAP
-# import importlib
-# import onesense
-# importlib.reload(onesense)
-# from onesense import onesense
-
-# metric2term = {
-#     'coef_norm2': 'Magnitude',
-#     'abs_log10_ratio_coefs': 'Dominance',
-#     'dcor_AB_fit': 'Model fit',
-#     'dcor_AnB_AB': 'Similarity of singles to double',
-#     'dcor_A_B': 'Similarity between singles',
-#     'dcor_ratio': 'Equality of contribution'
-# }
-
-# def get_umap(xdata, random_state, **kwargs):
-#     transformer = UMAP(random_state=random_state, **kwargs)
-#     x = transformer.fit_transform(xdata)
-#     return x, random_state
-
-
-# def get_toms_GI_umap(
-#         gi_df,
-#         rx=123,
-#         ry=456,
-#         plot_metric='num_degs',
-#         save=None, #path to save the UMAP figure as well as the dataframe itself
-#         **kwargs
-#         ):
-
-#     regr_fit = gi_df.copy()
-#     xs = regr_fit[['coef_norm2', 'abs_log10_ratio_coefs', 'dcor_AB_fit']]
-#     ys = regr_fit[['dcor_AnB_AB', 'dcor_A_B', 'dcor_ratio']]
-    
-#     x_table = xs.copy()
-#     x_table = (x_table)/x_table.std()
-#     y_table = ys.copy()
-#     y_table = (y_table)/y_table.std()
-#     x_table.head(), y_table.head()
-
-#     x, _ = get_umap(x_table, rx, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
-#     y, _ = get_umap(y_table, ry, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5)
-
-#     x = pd.Series(x.flatten().astype(float), index=x_table.index)
-#     y = pd.Series(y.flatten().astype(float), index=y_table.index)
-
-#     xs_list = [xs[x].values for x in xs.columns]
-#     ys_list = [ys[y].values for y in ys.columns]
-
-#     cx, cy = onesense(x, y, regr_fit[plot_metric], xs_list, ys_list, 
-#             xlabels=[metric2term[x] for x in xs.columns], ylabels=[metric2term[x] for x in ys.columns],
-#                     label=True,
-#                     figsize=[15,15], 
-#                     ylims=((0, 1), (0, 1), (0, 1)),
-#                     **kwargs)
-
-#     regr_fit['x_umap'] = x
-#     regr_fit['y_umap'] = y
-#     regr_fit['x_cluster'] = cx
-#     regr_fit['y_cluster'] = cy
-    
-#     if save: 
-#         regr_fit.to_csv(save + '.csv')
-#         plt.savefig(save + '.png', bbox_inches='tight')
-
-#     return regr_fit
-
-
-##############################################################################################################
-## Updated Function
-##############################################################################################################
-
-import numpy as np
-import pandas as pd
-from sklearn.linear_model import ElasticNet
-from sklearn.utils import shuffle
-from scipy.stats import spearmanr
-from scipy.sparse import csr_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-from tqdm import tqdm
-from .utils import get_perturbation_matrix
-
-
-def get_coef_permutation_plot(coefs, perm_coefs, labels, ax=None, show=True):
-    """Plot the distribution of coefficients from a permutation test"""
-    fig, ax = plt.subplots(1, 3, figsize=(7, 2))
-    for i, coef in enumerate(coefs):
-        pval = np.mean(np.abs(perm_coefs[:, i]) >= np.abs(coef))
-        sns.histplot(np.abs(perm_coefs[:, i]), ax=ax[i])
-        ax[i].axvline(np.abs(coef), color="red", linestyle="--")
-        ax[i].set_title(f"{labels[i]} - p={pval:.2f}")
-        # remove xaxis and x ticks
-        ax[i].set_xlabel("")
-        ax[i].set_xticks([])
-    fig.suptitle("Magnitude of actual coefficient to permutated distribution")
-    fig.tight_layout()
-    if show:
-        plt.show()
-
-
-# Parallel permutation test
-def run_permutation(X, y, alpha=0.005, l1_ratio=0.5, seed=1000):
-    np.random.seed(seed)  # Set the seed for reproducibility
-    y_permuted = shuffle(y, random_state=seed)
-    if alpha > 0:
-        model = ElasticNet(
-            alpha=alpha, l1_ratio=l1_ratio, fit_intercept=False, random_state=seed
-        )
-    else:
-        model = LinearRegression(fit_intercept=False)
-    model.fit(X, y_permuted)
-    return model.coef_
-
-def get_model(
-    adata,
-    double,
-    target,
-    perturbation_col="perturbation",
-    control_value="NTC",
+def fit_many(
+    data,
+    perturbations=None,
     delim="|",
-    quiet=False,
-    plot=False,
-    permutation_plot=False,
-    seed=1000,
-    n_permutations=100,
-    alpha=0.05,
-    n_jobs=None,
+    ref="NTC",
+    parallel=False,
+    processes=4,
+    **kwargs,
 ):
     """
+    Unified function to fit Norman model to multiple perturbations.
 
-    Implementation of 2 perturbation model similar to mSW/SNF paper from Cigall's group (REF needed).
-    Basic overview:
-    1. A + B + AB = y
-    2. Elastic net
-    3. Permutation test for coefficient significance
+    Args:
+        data: DataFrame with perturbations as index and genes as columns
+        perturbations:
+            - None: Run on all dual perturbations (containing delim, excluding ref)
+            - str: Run on single perturbation
+            - list: Run on specified list of perturbations
+        delim: Delimiter for identifying dual perturbations
+        ref: Reference/control value to exclude from analysis
+        parallel: Whether to use parallel processing
+        processes: Number of processes for parallel execution
+        **kwargs: Additional arguments passed to norman_model
+
+    Returns:
+        tuple: (metrics_DataFrame, predictions_DataFrame)
     """
-    # Prepare data
+    # if data is anndata then make it df
+    if type(data) == sc.AnnData:
+        print("Found AnnData, densifying to df. This may take a while... ")
+        data = data.to_df()
 
-    adata = adata[:, target].copy()
-    if isinstance(adata.X, csr_matrix):
-        adata.X = adata.X.toarray()
-    ref_val_combined = control_value + delim + control_value
-    y_ref = adata[adata.obs[perturbation_col] == ref_val_combined, :].X.flatten()
-    y0 = y_ref.mean()
-
-    singles = get_singles(double, control_value=control_value)
-    perturbations = [singles[0], singles[1], double]
-    data = adata[adata.obs[perturbation_col].isin(perturbations), :]
-    single_genes = double.split(delim)
-    indicators = get_perturbation_matrix(
-        data, perturbation_col=perturbation_col, inplace=False, verbose=False
-    )
-    indicators = indicators.loc[:, single_genes]
-    indicators[double] = indicators[singles[0]] * indicators[singles[1]]
-
-    # Elastic Net fitting
-    regr = ElasticNet(
-        alpha=0.005,  # params from mSWI/SNF paper
-        l1_ratio=0.5,  # params from mSWI/SNF paper
-        fit_intercept=False,
-        random_state=seed,
-    )
-
-    if alpha == 0:
-        regr = LinearRegression(fit_intercept=False)
-
-    X = indicators.values
-    y = data.X.flatten() - y0
-    # remove any cells that don't have a value for y
-    inds = ~np.isnan(y)
-    X = X[inds, :]
-    y = y[inds]
-    regr.fit(X, y)
-    Z = regr.predict(X)
-
-    # Collect results
-    out = {
-        "perturbation": double,
-        "a": singles[0],
-        "b": singles[1],
-        "target": target,
-        "control_value": ref_val_combined,
-        "coef_a": regr.coef_[0],
-        "coef_b": regr.coef_[1],
-        "coef_ab": regr.coef_[2],
-        "corr_fit": spearmanr(Z.flatten(), y)[0],
-        "score": regr.score(X, y),
-    }
-
-    if n_permutations is not None:
-        # Permutation test
-        original_coefs = regr.coef_
-        if n_jobs is not None:
-            # Parallel permutation test using joblib
-            perm_coefs = Parallel(n_jobs=n_jobs)(
-                delayed(run_permutation)(X, y, 0.005, 0.5, i)
-                for i in range(n_permutations)
-            )
-            perm_coefs = np.array(perm_coefs)
-        else:
-            perm_coefs = np.zeros((n_permutations, 3))
-
-            for i in (
-                tqdm(range(n_permutations)) if not quiet else range(n_permutations)
-            ):
-                perm_coefs[i, :] = run_permutation(X, y, 0.005, 0.5, seed + i)
-        # p_values = np.mean(np.abs(perm_coefs) >= np.abs(regr.coef_), axis=0)
-        # modify this so min pvalue is based on # of permutaitons
-        p_values = (
-            np.mean(np.abs(perm_coefs) >= np.abs(regr.coef_), axis=0)
-            + 1 / n_permutations
-        )
-        out["p_value_a"] = p_values[0]
-        out["p_value_b"] = p_values[1]
-        out["p_value_ab"] = p_values[2]
-
-        out["-log10_pval_ab"] = -np.log10(out["p_value_ab"] + 1 / n_permutations)
-        out["signif_interaction"] = out["p_value_ab"] < alpha
-
-        # permutation coef plot
-        if permutation_plot and not quiet:
-            get_coef_permutation_plot(
-                original_coefs, perm_coefs, labels=perturbations, show=False
-            )
-
-    # add mean reference value (ie y0)
-    out["ref_mean"] = float(y0)
-    out["ref_median"] = float(np.median(y_ref))
-
-    for val, pert in zip(["a", "b", "ab"], perturbations):
-        inds = data.obs[perturbation_col] == pert
-        out[f"n_cells_{val}"] = np.sum(inds)
-        out[f"mean_{val}"] = float(np.mean(y[inds]))
-        out[f"predicted_mean_{val}"] = float(np.mean(Z[inds]))
-        out[f"median_{val}"] = float(np.median(y[inds]))
-        out[f"predicted_median_{val}"] = float(np.median(Z[inds]))
-        out[f"corr_{val}"] = spearmanr(y[inds], Z[inds])[0]
-
-    # add predictions for ab group when not using the ab coef
-    inds = data.obs[perturbation_col] == double
-    ab_indicators = indicators.loc[inds, single_genes]
-    pred_ab_no_interaction_term = (
-        out["coef_a"] * ab_indicators[single_genes[0]]
-        + out["coef_b"] * ab_indicators[single_genes[1]]
-    )
-    out["predicted_mean_ab_no_interaction_term"] = float(
-        np.mean(pred_ab_no_interaction_term)
-    )
-    out["predicted_median_ab_no_interaction_term"] = float(
-        np.median(pred_ab_no_interaction_term)
-    )
-    out["corr_ab_no_interaction_term"] = spearmanr(
-        y[inds], pred_ab_no_interaction_term
-    )[0]
-
-    ##other additional metrics
-    out["abs_coef_ab"] = abs(out["coef_ab"])
-    out["abs_coef_a"] = abs(out["coef_a"])
-    out["abs_coef_b"] = abs(out["coef_b"])
-
-    out["direction_interaction"] = np.sign(out["coef_ab"])
-    out["direction_interaction_wA"] = np.sign(
-        out["coef_ab"] * out["coef_a"]
-    )  # negative if there is disagreemtn
-    out["direction_interaction_wB"] = np.sign(
-        out["coef_ab"] * out["coef_b"]
-    )  # negative if there is disagreemt
-    out["direction_interaction_wA_wB"] = np.sign(
-        out["coef_ab"] * out["coef_a"] * out["coef_b"]
-    )  # negative if there is any disagreemt
-    out["relative_magnitude_interaction"] = out["abs_coef_ab"] / (
-        out["abs_coef_a"] + out["abs_coef_b"]
-    )
-
-    out["predicted_mean_ab_no_interaction"] = out["coef_a"] + out["coef_b"]
-    out["predicted_sign_ab_no_interaction"] = np.sign(
-        out["predicted_mean_ab_no_interaction"]
-    )
-    out["interaction_effect"] = (
-        out["predicted_sign_ab_no_interaction"] * out["direction_interaction"]
-    )
-
-    # Plotting (if required)
-    if plot and not quiet:
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-        sns.boxplot(x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations)
-        ax[0].set_title(f"Target: {target}")
-        ax[0].set_ylabel("Expression (difference from reference)")
-        sns.scatterplot(
-            y=y,
-            x=Z,
-            hue=data.obs[perturbation_col],
-            hue_order=perturbations,
-            ax=ax[1],
-            alpha=0.7,
-        )
-        ax[1].set_ylabel("Actual")
-        ax[1].set_xlabel("Fit")
-        model_string = f"{round(out['coef_a'],2)}{out['a']} + {round(out['coef_b'],2)}{out['b']} + {round(out['coef_ab'],2)}{out['perturbation']}"
-        ax[1].set_title(f"R2: {out['score']:.2f}\n{model_string}")
-        fig.tight_layout()
-        plt.show()
-
-    return out
-
-
-##############################################################################################################
-## Updated Function for interaction modeling FOR 2 PERTURBATIONS that includes reference cells
-# this builds on the statsmodels implementation which added the following:
-# - estimation of coefficient significance and p-values via wald test (ie the background test done by statsmodels)
-# - use of robust regression (ie TheilSenRegressor) to avoid outliers
-# This implementation simply add the reference cells and removes the need to subtract reference mean from the values
-# Rationale for this: it seems that with the reference mean subtraction, there was an inflation of pvals
-#   for coefficients (including the interaciton term) with lowly expressed genes that had a consistent decrease compared to reference
-
-
-from joblib import Parallel, delayed
-import statsmodels.formula.api as smf
-import statsmodels.api as sm
-
-
-def estimate_alpha_empirical(y):
-    mean_y = np.mean(y)
-    var_y = np.var(y, ddof=1)
-    if mean_y <= var_y:  # Check for overdispersion
-        try:
-            dispersion_factor = (var_y - mean_y) / mean_y**2
-            alpha = 1 / dispersion_factor
-        except ZeroDivisionError:
-            raise ValueError("Cannot estimate alpha when mean_y is 0")
+    # Determine which perturbations to analyze
+    if perturbations is None:
+        # Run on all dual perturbations (exclude control)
+        all_perts = data.index.tolist()
+        perturbations = [p for p in all_perts if delim in p and ref not in p]
+        print(f"Auto-detected {len(perturbations)} dual perturbations to analyze")
+    elif isinstance(perturbations, str):
+        # Single perturbation
+        perturbations = [perturbations]
+    elif isinstance(perturbations, list):
+        # List of perturbations provided
+        pass
     else:
-        alpha = None  # assume poisson estimate
-    return alpha, mean_y, var_y
+        raise ValueError("perturbations must be None, str, or list")
 
-
-def breakdown_double_wRef(input_str, control_value="control", delim="|"):
-    """
-    Breakdown a double perturbation string into components.
-    
-    Parameters:
-    input_str: str
-        The double perturbation string (e.g., 'A|B')
-    control_value: str
-        The control value to use in combinations
-    delim: str
-        Delimiter used in the perturbation string
-        
-    Returns:
-    dict: Mapping of terms to perturbation combinations
-    """
-    # Implementation would go here
-    return {}
-
-
-def breakdown_triple_wRef(input_str, control_value="control", delim="|"):
-    """
-    Breakdown a triple perturbation string into components.
-    
-    Parameters:
-    input_str: str
-        The triple perturbation string (e.g., 'A|B|C')
-    control_value: str
-        The control value to use in combinations
-    delim: str
-        Delimiter used in the perturbation string
-        
-    Returns:
-    dict: Mapping of terms to perturbation combinations
-    """
-    # Implementation would go here
-    return {}
-
-
-def breakdown_perturbation(combo_perturbation, num_perturbations, **kwargs):
-    if num_perturbations == 2:
-        return breakdown_double_wRef(combo_perturbation, **kwargs)
-    elif num_perturbations == 3:
-        return breakdown_triple_wRef(combo_perturbation, **kwargs)
-    else:
-        raise ValueError("Only 2 or 3 perturbations are supported")
-
-
-# def add_metrics_triple(out, indicators, y, pert2term, term2pert, s):
-
-
-def get_model_wNTC(
-    combo_perturbation,
-    target,
-    adata=None,
-    perturbation_col="perturbation",
-    control_value="NTC",
-    delim="|",
-    use_perturbation_matrix=False,
-    num_perturbations=None,
-    method="robust",
-    eps=1e-250,
-    quiet=False,
-    plot=False,
-):
-    """
-    Model for 2 perturbations using statsmodels pacakge with addition of control_value populations
-    
-    Parameters:
-    adata: scanpy AnnData object.
-    combo_perturbation: str containing '|' delimited perturbations; for two perturbations (e.g., 'A|B')
-    target: str indicating gene to target
-    perturbation_col: str indicating column in .obs containing perturbation calls
-    control_value: what the control should be labeled as for the sake of constructing the model. ussually 'NTC' 
-
-    *main difference from implementation with statsmodels is that we add control_value indicators to the model and fit to A,B,AB, and ref cells
-
-    Implementation:
-    - statsmodel OLS 
-    - indicators for each perturbation as well as each combinations
-    - fit to A, B, AB and control_value cells 
-    
-    Returns:
-    dictionary of output
-    """
-    
-    if num_perturbations is None:
-        num_perturbations = len(combo_perturbation.split(delim))
-
-    # create new breakdown function that includes control_value
-    term2pert = breakdown_perturbation(
-        combo_perturbation, num_perturbations=num_perturbations, delim=delim, control_value=control_value
-    )
-
-    # subset to just relevant
-    relevant_conditions = [term2pert[k] for k in term2pert.keys()]
-    # subset adata to combos
-    subset_adata = adata[adata.obs[perturbation_col].isin(relevant_conditions), :]
-
-    get_perturbation_matrix(
-        subset_adata, perturbation_col, control_value=control_value, inplace=True, verbose=not quiet
-    )
-
-    if not quiet:
+    # Validate that all perturbations exist in data
+    missing_perts = [p for p in perturbations if p not in data.index]
+    if missing_perts:
         print(
-            f"Subset to conditions: {relevant_conditions} -- resulting in {subset_adata.shape[0]} cells"
+            f"Warning: {len(missing_perts)} perturbations not found in data: {missing_perts[:5]}..."
         )
+        perturbations = [p for p in perturbations if p in data.index]
 
-    # get features for model as indicators
-    perturbation_matrix = subset_adata.obsm["perturbation"]
+    if len(perturbations) == 0:
+        raise ValueError("No valid perturbations found to analyze")
 
-    # get the target gene and subset to that
-    subset_adata = subset_adata[:, target]
-    if subset_adata.shape[1] == 0:
-        raise ValueError(f"Target {target} not found in adata")
+    print(f"Analyzing {len(perturbations)} perturbations...")
 
-    # update term2pert so it points to control_value
-    term2pert["control_value"] = term2pert["ref"]
-
-    out = {
-        "perturbation": combo_perturbation,
-        "target": target,
-        "control_value": term2pert["ref"],
-    }
-
-    out.update(term2pert)
-    out.pop(
-        "ref", None
-    )  # update with the term to perturbation mapping (ie a == 'A|control_value' etc)
-
-    # define formula with control_value and with removing the intercept
-    if num_perturbations == 2:
-        formula = f"y ~ {term2pert[combo_perturbation][0]} + {term2pert[combo_perturbation][1]} + {term2pert[combo_perturbation][2]} -1"
-    elif num_perturbations == 3:
-        formula = f"y ~ {term2pert[combo_perturbation][0]} + {term2pert[combo_perturbation][1]} + {term2pert[combo_perturbation][2]} + {term2pert[combo_perturbation][3]} -1"
-
-    ################################################################################
-    ### SETUP MODEL AND FIT
-    ################################################################################
-
-    # define model type based on input method
-    if method == "robust":
-        out["method"] = "robust"
-        print("\tUsing robust regression")
-        regr = smf.rlm(formula, data=subset_adata)
-    elif method == "ols":
-        out["method"] = "ols"
-        print("\tUsing OLS regression") if not quiet else None
-        regr = smf.ols(formula, data=subset_adata)
-    elif method in ["negbin", "nb", "negativebinomial"]:
-        print("\tUsing Negative Binomial regression") if not quiet else None
-        y_ref = subset_adata.loc[subset_adata["term"] == "ref", "y"].values
-        alpha_estimated, mean_ref, var_ref = estimate_alpha_empirical(y_ref)
-        (
-            print(
-                f"Estimated alpha: {alpha_estimated} -  Mean: {mean_ref} - Variance: {var_ref}"
-            )
-            if not quiet
-            else None
-        )
-
-        if alpha_estimated is not None:
-            # Using GLM with a Negative Binomial family
-            out["method"] = "negativebinomial"
-            regr = smf.glm(
-                formula,
-                data=subset_adata,
-                family=sm.families.NegativeBinomial(alpha=alpha_estimated),
-            )
-        else:
-            out["method"] = "poisson"
-            # use a poison regression
-            regr = smf.glm(formula, data=subset_adata, family=sm.families.Poisson())
-
-    ##fit
-    print("\tFitting model...")
-    regr_fit = regr.fit()
-    Z = regr_fit.predict(subset_adata)
-    subset_adata["predicted"] = Z
-
-    for i, term in enumerate(term2pert.keys()):
-        out[f"pval_{term}"] = regr_fit.pvalues[i] + eps
-        out[f"tstat_{term}"] = regr_fit.tvalues[i]
-        out[f"std_err_{term}"] = regr_fit.bse[i]
-        out[f"coef_{term}"] = regr_fit.params[i]
-        out[f"abs_coef_{term}"] = abs(regr_fit.params[i])
-
-    out["corr_fit"] = spearmanr(Z.values, subset_adata["y"])[0]
-
-    for term, pert in term2pert.items():
-        inds = subset_adata.obs[perturbation_col] == pert
-        out[f"n_cells_{term}"] = np.sum(inds)
-        out[f"mean_{term}"] = float(np.mean(subset_adata["y"][inds]))
-        out[f"var_{term}"] = float(np.var(subset_adata["y"][inds], ddof=1))
-        out[f"predicted_mean_{term}"] = float(np.mean(Z[inds]))
-        out[f"median_{term}"] = float(np.median(subset_adata["y"][inds]))
-        out[f"predicted_median_{term}"] = float(np.median(Z[inds]))
-
-    # if the method is robust or ols, we can just use the coefficients to calculate directly on y given there is no link function
-    if method in ["robust", "ols"]:
-        print("\tGetting prediction without interaction effect...")
-        indicators_only = subset_adata.loc[:, term2pert.values()]
-        # get prediction without using the last indicator (ie the combo perturbation) or last coefficient (ie the interaction term)
-        Z_noInteraction = indicators_only.values @ regr_fit.params[0:(num_perturbations + 1)]
-        # multiply the indicators without the last column
-        combo_term = pert2term[combo_perturbation]
-        combo_inds = subset_adata.obs[perturbation_col] == combo_perturbation
-        out[f"predicted_mean_no_interaction_{combo_term}"] = float(
-            np.mean(Z_noInteraction[combo_inds])
-        )
-        out[f"predicted_median_no_interaction_{combo_term}"] = float(
-            np.median(Z_noInteraction[combo_inds])
-        )
-
-        if num_perturbations == 3:
-            Z_noTripleInteraction_AW = (
-                (indicators_only[term2pert[combo_perturbation][0]] * out["coef_ref"])
-                + (indicators_only[term2pert[combo_perturbation][1]] * out["coef_a"])
-                + (indicators_only[term2pert[combo_perturbation][2]] * out["coef_b"])
-                + (indicators_only[term2pert[combo_perturbation][3]] * out["coef_c"])
-                + (indicators_only[term2pert[combo_perturbation][1]] * indicators_only[term2pert[combo_perturbation][2]] * out["coef_ab"])
-                + (indicators_only[term2pert[combo_perturbation][1]] * indicators_only[term2pert[combo_perturbation][3]] * out["coef_ac"])
-                + (indicators_only[term2pert[combo_perturbation][2]] * indicators_only[term2pert[combo_perturbation][3]] * out["coef_bc"])
-            )
-
-            out["predicted_mean_no_triple_interaction_AW"] = float(
-                np.mean(Z_noTripleInteraction_AW[combo_inds])
-            )
-
-        if plot:
-            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-            sns.boxplot(
-                x=subset_adata.obs[perturbation_col], y=subset_adata["y"], ax=ax[0], order=term2pert.values()
-            )
-            ax[0].set_title(f"Target: {target}")
-            ax[0].set_ylabel("Expression")
-            ax[0].set_xlabel(None)
-            ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha="right")
-
-            # set color of each tick to its corresponding hue
-            for i, xtick in enumerate(ax[0].get_xticklabels()):
-                xtick.set_color(sns.color_palette()[i])
-            # add line with text for only single and no interaction
-            ax[0].axhline(
-                out[f"predicted_mean_no_interaction_{combo_term}"],
-                color="red",
-                linestyle="--",
-                alpha=0.3,
-            )
-            # ax[0].text(0, out['predicted_mean_abc_only_single'], "only singles", color='red', alpha=0.3)
-            # ax[0].text(0, out['predicted_mean_abc_no_interaction'], "all but interaction", color='blue', alpha=0.3)
-            ax[0].text(
-                0.5,
-                0.5,
-                "prediction w/o interaction",
-                color="red",
-                alpha=0.3,
-                transform=ax[0].transAxes,
-            )
-
-            sns.scatterplot(
-                y=-np.log10(regr_fit.pvalues + eps),
-                x=regr_fit.params,
-                hue=term2pert.values(),
-                hue_order=term2pert.values(),
-                ax=ax[1],
-                alpha=0.7,
-            )
-            # set legend outside
-            ax[1].axhline(-np.log10(0.05), color="black", linestyle="--", alpha=0.3)
-            ax[1].set_title("Coefficients")
-            ax[1].set_xlabel("Coefficient value")
-            ax[1].set_ylabel("-log10(p-value)")
-            # remove legend
-            ax[1].get_legend().remove()
-
-            fig.tight_layout()
-            plt.show()
-
-    ## end the shared 2 or 3 perturbation coding
-
-    # for 2 perturbation, we want to add the no interaction term prediction
-
-    # for 3 perturbations, we want to add no triple interaction, and no digenic term interaction predictions
-
-    # add predictions for ab group when not using the ab coef
-    # inds = data.obs[perturbation_col] == double
-    # ab_indicators = indicators.loc[inds, single_genes]
-    # pred_ab_no_interaction_term = (
-    #     out["coef_a"] * ab_indicators[single_genes[0]]
-    #     + out["coef_b"] * ab_indicators[single_genes[1]]
-    # )
-    # out["predicted_mean_ab_no_interaction_term"] = float(
-    #     np.mean(pred_ab_no_interaction_term)
-    # )
-    # out["predicted_median_ab_no_interaction_term"] = float(
-    #     np.median(pred_ab_no_interaction_term)
-    # )
-    # out["corr_ab_no_interaction_term"] = spearmanr(
-    #     y[inds], pred_ab_no_interaction_term
-    # )[0]
-
-    # out["direction_interaction"] = np.sign(out["coef_ab"])
-    # out["direction_interaction_wA"] = np.sign(
-    #     out["coef_ab"] * out["coef_a"]
-    # )  # negative if there is disagreemtn
-    # out["direction_interaction_wB"] = np.sign(
-    #     out["coef_ab"] * out["coef_b"]
-    # )  # negative if there is disagreemt
-    # out["direction_interaction_wA_wB"] = np.sign(
-    #     out["coef_ab"] * out["coef_a"] * out["coef_b"]
-    # )  # negative if there is any disagreemt
-    # out["relative_magnitude_interaction"] = out["abs_coef_ab"] / (
-    #     out["abs_coef_a"] + out["abs_coef_b"]
-    # )
-
-    # out["predicted_mean_ab_no_interaction"] = out["coef_a"] + out["coef_b"]
-    # out["predicted_sign_ab_no_interaction"] = np.sign(
-    #     out["predicted_mean_ab_no_interaction"]
-    # )
-    # out["interaction_effect"] = (
-    #     out["predicted_sign_ab_no_interaction"] * out["direction_interaction"]
-    # )
-
-    # if plot and not quiet:
-    #     fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-    #     sns.boxplot(x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations)
-    #     ax[0].set_title(f"Target: {target}")
-    #     ax[0].set_ylabel("Expression (difference from reference)")
-    #     sns.scatterplot(
-    #         y=y,
-    #         x=Z,
-    #         hue=data.obs[perturbation_col],
-    #         hue_order=perturbations,
-    #         ax=ax[1],
-    #         alpha=0.7,
-    #     )
-    #     ax[1].set_ylabel("Actual")
-    #     ax[1].set_xlabel("Fit")
-    #     model_string = f"{round(out['coef_a'],2)}{out['a']} + {round(out['coef_b'],2)}{out['b']} + {round(out['coef_ab'],2)}{out['perturbation']}"
-    #     ax[1].set_title(
-    #         f"Spearman: {out['corr_fit']:.2f} - pval AB {round(out['pval_ab'], 3)}\n{model_string}"
-    #     )
-    #     fig.tight_layout()
-    #     plt.show()
-
-    return out
+    # Run analysis
+    if parallel and len(perturbations) > 1:
+        return _fit_many_parallel(data, perturbations, processes, **kwargs)
+    else:
+        return _fit_many_sequential(data, perturbations, **kwargs)
 
 
-##############################################################################################################
-## Updated Modeling function including reference cells and Negative Binomial/Poisson assumption
+def _fit_many_sequential(data, perturbations, **kwargs):
+    """Sequential execution of norman_model for multiple perturbations."""
+    results = []
+    predictions = []
 
-# import numpy as np
-# import pandas as pd
-# from scipy.stats import spearmanr, pearsonr
-# from scipy.sparse import csr_matrix
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# from tqdm import tqdm
-# from joblib import Parallel, delayed
-# import scanpy as sc
-# from pyturbseq.utils import get_perturbation_matrix
+    for pert in tqdm(perturbations, desc="Fitting models"):
+        out, Z = norman_model(data, pert, verbose=False, **kwargs)
+        if out is not None:
+            results.append(out)
+            predictions.append(Z)
 
-# import statsmodels.formula.api as smf
-# import statsmodels.api as sm
+    # Convert to DataFrames
+    metrics_df = pd.DataFrame(results).set_index("perturbation")
+    predictions_df = pd.DataFrame(
+        predictions, index=[r["perturbation"] for r in results], columns=data.columns
+    )
+
+    return metrics_df, predictions_df
 
 
-# def get_treatment_effect_model(
-#     combo_perturbation,
-#     target,
-#     adata,
-#     perturbation_col="perturbation_treatment",
-#     reference="control",
-#     delim="|",
-#     coef_c="css",
-#     eps=1e-250,
-#     method="negativebinomial",
-#     quiet=False,
-#     plot=False,
-# ):
-#     """
-#     Model for interaction between 3 perturbations using statsmodels pacakge.
-#     Basic Overiew:
-#     1. Indicator model: ref + A + B + C + AB + AC + BC + ABC = y
-#     2. Robust linear regression
-#     3. Get p-values for coefficients via statsmodels package (ie wald test)
-#     """
-#     # Prepare data
-#     term2pert, s = breakdown_triple_wRef(
-#         combo_perturbation, third_pos=coef_c, delim=delim, ref=reference
-#     )
-#     pert2term = {v: k for k, v in term2pert.items()}
+def _fit_many_parallel(data, perturbations, processes, **kwargs):
+    """Parallel execution of norman_model for multiple perturbations."""
+    results = []
+    predictions = []
 
-#     perturbations = term2pert.values()
-#     data = adata[adata.obs[perturbation_col].isin(perturbations), target]
-#     # make sure that coef_c is the 3rd in var
-#     indicators = get_perturbation_matrix(
-#         data,
-#         perturbation_col=perturbation_col,
-#         inplace=False,
-#         set_ref_1=reference,
-#         verbose=False,
-#     )
-#     indicators = indicators.loc[:, s]
-#     # return
-#     # df = pd.DataFrame(indicators, columns=s)
-#     y = data.X.toarray().flatten()
-#     indicators["y"] = list(y)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
+        # Submit all jobs
+        futures = [
+            executor.submit(norman_model, data, pert, verbose=False, **kwargs)
+            for pert in perturbations
+        ]
 
-#     indicators[perturbation_col] = data.obs[perturbation_col]
-#     indicators["term"] = [pert2term[x] for x in indicators[perturbation_col]]
+        # Process results as they complete
+        for future in tqdm(
+            concurrent.futures.as_completed(futures),
+            total=len(perturbations),
+            desc="Fitting models",
+        ):
+            out, Z = future.result()
+            if out is not None:
+                results.append(out)
+                predictions.append(Z)
 
-#     out = {
-#         "perturbation": combo_perturbation,
-#         "reference": term2pert["ref"],
-#         "target": target,
-#         "n_cells": indicators.shape[0],
-#         "mean": float(np.mean(y)),
-#         "var": float(np.var(y, ddof=1)),
-#     }
-#     out.update(term2pert)
+    # Convert to DataFrames
+    metrics_df = pd.DataFrame(results).set_index("perturbation")
+    predictions_df = pd.DataFrame(
+        predictions, index=[r["perturbation"] for r in results], columns=data.columns
+    )
 
-#     formula = f"y ~ {s[0]} + {s[1]} + {s[2]} + {s[3]} + {s[1]}:{s[2]} + {s[1]}:{s[3]} + {s[2]}:{s[3]} + {s[1]}:{s[2]}:{s[3]} -1"
+    return metrics_df, predictions_df
 
-#     if method == "robust":
-#         out["method"] = "robust"
-#         print("\tUsing robust regression")
-#         regr = smf.rlm(formula, data=indicators)
-#     elif method == "ols":
-#         out["method"] = "ols"
-#         print("\tUsing OLS regression") if not quiet else None
-#         regr = smf.ols(formula, data=indicators)
-#     elif method in ["negbin", "nb", "negativebinomial"]:
-#         print("\tUsing Negative Binomial regression") if not quiet else None
-#         y_ref = indicators.loc[indicators["term"] == "ref", "y"].values
-#         alpha_estimated, mean_ref, var_ref = estimate_alpha_empirical(y_ref)
-#         (
-#             print(
-#                 f"Estimated alpha: {alpha_estimated} -  Mean: {mean_ref} - Variance: {var_ref}"
-#             )
-#             if not quiet
-#             else None
-#         )
 
-#         if alpha_estimated is not None:
-#             # Using GLM with a Negative Binomial family
-#             out["method"] = "negativebinomial"
-#             regr = smf.glm(
-#                 formula,
-#                 data=indicators,
-#                 family=sm.families.NegativeBinomial(alpha=alpha_estimated),
-#             )
-#         else:
-#             out["method"] = "poisson"
-#             # use a poison regression
-#             regr = smf.glm(formula, data=indicators, family=sm.families.Poisson())
+# Legacy compatibility - keep for backwards compatibility but deprecate
+def get_model_fit(*args, **kwargs):
+    """Deprecated: Use norman_model instead."""
+    import warnings
 
-#     regr_fit = regr.fit()
-#     Z = regr_fit.predict(indicators)
-#     indicators["predicted"] = Z
-
-#     # return regr_fit
-#     for i, val in enumerate(term2pert.keys()):
-#         out[f"pval_{val}"] = regr_fit.pvalues[i] + eps
-#         out[f"tstat_{val}"] = regr_fit.tvalues[i]
-#         out[f"std_err_{val}"] = regr_fit.bse[i]
-#         out[f"coef_{val}"] = regr_fit.params[i]
-#         out[f"abs_coef_{val}"] = abs(regr_fit.params[i])
-
-#     out["-log10_pval_abc"] = -np.log10(regr_fit.pvalues[-1] + eps)
-
-#     # out['score'] = regr_fit.rsquared
-#     out["corr_fit"] = spearmanr(Z.values, y)[0]
-
-#     for val, pert in term2pert.items():
-#         inds = data.obs[perturbation_col] == pert
-#         out[f"n_cells_{val}"] = np.sum(inds)
-#         out[f"mean_{val}"] = float(np.mean(y[inds]))
-#         out[f"var_{val}"] = float(np.var(y[inds], ddof=1))
-#         out[f"predicted_mean_{val}"] = float(np.mean(Z[inds]))
-#         out[f"median_{val}"] = float(np.median(y[inds]))
-#         out[f"predicted_median_{val}"] = float(np.median(Z[inds]))
-
-#     # add predictions for ab group when not using the ab coef
-#     inds = data.obs[perturbation_col] == combo_perturbation
-#     abc_indicators = indicators.loc[inds, s]
-#     predicted_mean_abc_only_single = np.sum(
-#         abc_indicators
-#         * np.array([out["coef_ref"], out["coef_a"], out["coef_b"], out["coef_c"]]),
-#         axis=1,
-#     )
-#     out["predicted_mean_abc_only_single"] = float(
-#         np.mean(predicted_mean_abc_only_single)
-#     )
-#     out["predicted_mean_abc_no_interaction"] = float(
-#         np.mean(np.sum(abc_indicators.iloc[:, :-1] * regr_fit.params[:-1], axis=1))
-#     )
-
-#     if plot and not quiet:
-#         fig, ax = plt.subplots(1, 2, figsize=(8, 5))
-
-#         sns.boxplot(x=data.obs[perturbation_col], y=y, ax=ax[0], order=perturbations)
-#         ax[0].set_title(f"Target: {target}")
-#         ax[0].set_ylabel("Expression (difference from reference)")
-#         ax[0].set_xlabel(None)
-#         ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha="right")
-
-#         # set color of each tick to its corresponding hue
-#         for i, xtick in enumerate(ax[0].get_xticklabels()):
-#             xtick.set_color(sns.color_palette()[i])
-#         # add line with text for only single and no interaction
-#         ax[0].axhline(
-#             out["predicted_mean_abc_only_single"],
-#             color="red",
-#             linestyle="--",
-#             alpha=0.3,
-#         )
-#         ax[0].axhline(
-#             out["predicted_mean_abc_no_interaction"],
-#             color="blue",
-#             linestyle="--",
-#             alpha=0.3,
-#         )
-#         # ax[0].text(0, out['predicted_mean_abc_only_single'], "only singles", color='red', alpha=0.3)
-#         # ax[0].text(0, out['predicted_mean_abc_no_interaction'], "all but interaction", color='blue', alpha=0.3)
-#         ax[0].text(
-#             0.5, 0.5, "only singles", color="red", alpha=0.3, transform=ax[0].transAxes
-#         )
-#         ax[0].text(
-#             0.5,
-#             0.4,
-#             "all but interaction",
-#             color="blue",
-#             alpha=0.3,
-#             transform=ax[0].transAxes,
-#         )
-
-#         eps = 1e-200
-#         sns.scatterplot(
-#             y=-np.log10(regr_fit.pvalues + eps),
-#             x=regr_fit.params,
-#             hue=term2pert.values(),
-#             hue_order=perturbations,
-#             ax=ax[1],
-#             alpha=0.7,
-#         )
-#         # set legend outside
-#         ax[1].axhline(-np.log10(0.05), color="black", linestyle="--", alpha=0.3)
-#         ax[1].set_title("Coefficients")
-#         ax[1].set_xlabel("Coefficient value")
-#         ax[1].set_ylabel("-log10(p-value)")
-#         # remove legend
-#         ax[1].get_legend().remove()
-
-#         fig.tight_layout()
-#         plt.show()
-#     return out
+    warnings.warn(
+        "get_model_fit is deprecated. Use norman_model instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return norman_model(*args, **kwargs)

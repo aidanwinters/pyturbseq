@@ -1,61 +1,75 @@
 ##########################################################################
-# 
+#
 # Functions for plotting and visualizing data
 #
 ##########################################################################
 
-import warnings 
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from adjustText import adjust_text
-import numpy as np
-import scanpy as sc
-from scipy.stats import spearmanr, pearsonr
-from scipy.sparse import csr_matrix, issparse
-from typing import Union, List
+import warnings
+from typing import List, Union
 
-from .utils import cluster_df, get_perturbation_matrix, get_average_precision_score
-from .interaction import get_singles, get_model_fit
-from matplotlib.patches import Patch
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import seaborn as sns
+import upsetplot as up
+from adjustText import adjust_text
 from matplotlib.collections import PatchCollection
-import upsetplot as up 
+from matplotlib.patches import Patch
+from scipy.sparse import csr_matrix, issparse
+from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import precision_recall_curve, roc_curve
+
+from .interaction import norman_model
+from .utils import cluster_df, get_average_precision_score, get_perturbation_matrix
+
+# Additional imports for norman_model_umap
+try:
+    from onesense import onesense
+    from umap import UMAP
+
+    UMAP_AVAILABLE = True
+except ImportError:
+    UMAP_AVAILABLE = False
 
 
 def plot_label_similarity(similarity_results, **kwargs):
     """
     Plot the distribution of pairwise similarities between labels in an AnnData object, the AUPRC, and AUROC curves.
-    
+
     Parameters:
         similarity_results (pd.DataFrame): The pairwise similarity results from calculate_label_similarity.
         **kwargs: Additional keyword arguments to pass to seaborn.histplot.
-    
+
     Example usage:
         plot_label_similarity(similarity_results)
     """
     fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-    
+
     # Violin plot for similarities
-    sns.violinplot(x='within', y='similarity', data=similarity_results, ax=axs[0])
-    axs[0].set_xticklabels({True: 'Within', False: 'Across'})
+    sns.violinplot(x="within", y="similarity", data=similarity_results, ax=axs[0])
+    axs[0].set_xticklabels({True: "Within", False: "Across"})
 
     # Precision-Recall Curve
-    precision, recall, _ = precision_recall_curve(similarity_results['within'], similarity_results['similarity'])
-    baseline = similarity_results['within'].sum() / len(similarity_results['within'])
+    precision, recall, _ = precision_recall_curve(
+        similarity_results["within"], similarity_results["similarity"]
+    )
+    baseline = similarity_results["within"].sum() / len(similarity_results["within"])
     axs[1].plot(recall, precision)
-    axs[1].plot([0, 1], [baseline, baseline], linestyle='--')
-    axs[1].set_xlabel('Recall')
-    axs[1].set_ylabel('Precision')
-    axs[1].set_title('Precision-Recall Curve')
+    axs[1].plot([0, 1], [baseline, baseline], linestyle="--")
+    axs[1].set_xlabel("Recall")
+    axs[1].set_ylabel("Precision")
+    axs[1].set_title("Precision-Recall Curve")
 
     # ROC Curve
-    fpr, tpr, _ = roc_curve(~similarity_results['within'], similarity_results['similarity'])
+    fpr, tpr, _ = roc_curve(
+        ~similarity_results["within"], similarity_results["similarity"]
+    )
     axs[2].plot(fpr, tpr)
-    axs[2].plot([0, 1], [0, 1], linestyle='--')
-    axs[2].set_xlabel('False Positive Rate')
-    axs[2].set_ylabel('True Positive Rate')
-    axs[2].set_title('ROC Curve')
+    axs[2].plot([0, 1], [0, 1], linestyle="--")
+    axs[2].set_xlabel("False Positive Rate")
+    axs[2].set_ylabel("True Positive Rate")
+    axs[2].set_title("ROC Curve")
 
     # Average Precision and AUROC
     avg_prec = get_average_precision_score(similarity_results)
@@ -65,23 +79,21 @@ def plot_label_similarity(similarity_results, **kwargs):
     fig.tight_layout()
     plt.show()
 
+
 def plot_filters(
-    filters: Union[dict, List],
-    adata: sc.AnnData,
-    axis: str = 'obs',
-    **kwargs
-    ):
+    filters: Union[dict, List], adata: sc.AnnData, axis: str = "obs", **kwargs
+):
     """
     Plot the filters on as an upset plot.
 
     Args:
-        filters: Either dictionary of filters in the form accepted by .utils.filter_adata that must contain the "axis" key (default is "obs"). Or a list of filters directly. 
+        filters: Either dictionary of filters in the form accepted by .utils.filter_adata that must contain the "axis" key (default is "obs"). Or a list of filters directly.
         adata: AnnData object
         axis: Axis to filter on. Default is "obs"
         **kwargs: Additional arguments to pass to upsetplot.plot
     """
 
-    #check if list or dict
+    # check if list or dict
     if isinstance(filters, dict):
         filters = filters[axis]
     elif isinstance(filters, list):
@@ -89,9 +101,9 @@ def plot_filters(
     else:
         raise ValueError("Filters must be either a dictionary or list.")
 
-    if axis == 'obs':
+    if axis == "obs":
         df = adata.obs
-    elif axis == 'var':
+    elif axis == "var":
         df = adata.var
     else:
         raise ValueError("Axis must be either 'obs' or 'var'.")
@@ -100,14 +112,16 @@ def plot_filters(
     upset_df.columns = filters
     print(upset_df.head())
 
-    for arg, val in [('min_subset_size', '0.5%'), ('sort_by', 'cardinality'), ('show_percentages', '{:.0%}')]:
+    for arg, val in [
+        ("min_subset_size", "0.5%"),
+        ("sort_by", "cardinality"),
+        ("show_percentages", "{:.0%}"),
+    ]:
         if arg not in kwargs:
             kwargs[arg] = val
-    
-    up.plot(
-        upset_df.value_counts(),
-        **kwargs
-        )
+
+    up.plot(upset_df.value_counts(), **kwargs)
+
 
 def target_change_heatmap(
     adata,
@@ -115,41 +129,65 @@ def target_change_heatmap(
     quiet=False,
     heatmap_kws={},
     figsize=None,
-    metric='log2fc',
+    metric="log2fc",
     return_fig=False,
-    ):
+):
+    if not quiet:
+        print(f"Calculating target gene heatmap for {perturbation_column} column...")
 
-    if not quiet: print(f"Calculating target gene heatmap for {perturbation_column} column...")
+    if metric not in ["log2fc", "zscore", "pct_change"]:
+        raise ValueError(
+            f"Metric '{metric}' not recognized. Please choose from 'log2fc', 'zscore', 'pct_change'."
+        )
 
-    if metric not in ['log2fc', 'zscore', 'pct_change']:
-        raise ValueError(f"Metric '{metric}' not recognized. Please choose from 'log2fc', 'zscore', 'pct_change'.")
-
-    value = 'target_' + metric
+    value = "target_" + metric
     if value not in adata.obsm:
-        raise ValueError(f"Target change metrics not found in adata.obsm. Please run calculate_target_change first. If single perturbation data with 'collapse_to_obs' as False.")
+        raise ValueError(
+            f"Target change metrics not found in adata.obsm. Please run calculate_target_change first. If single perturbation data with 'collapse_to_obs' as False."
+        )
 
     if value not in adata.obsm:
-        raise ValueError(f"No target change metrics found in adata.obsm. Please run calculate_target_change first. Note: if single perturbation data, ensure 'collapse_to_obs' is set to false")
-    
-    target_change = adata.obsm[value].groupby(adata.obs[perturbation_column]).median().sort_index(axis=0).sort_index(axis=1)
-    
-    #check if contains inf
+        raise ValueError(
+            f"No target change metrics found in adata.obsm. Please run calculate_target_change first. Note: if single perturbation data, ensure 'collapse_to_obs' is set to false"
+        )
+
+    target_change = (
+        adata.obsm[value]
+        .groupby(adata.obs[perturbation_column])
+        .median()
+        .sort_index(axis=0)
+        .sort_index(axis=1)
+    )
+
+    # check if contains inf
     if np.any(np.isinf(target_change)):
         warnings.warn("Some values are infinite. Replacing with NaN.")
         target_change = target_change.replace([np.inf, -np.inf], np.nan)
 
-    if np.any(adata.obsm['perturbation'].sum(axis=1) > 1):
-        warnings.warn("Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap.")
+    if np.any(adata.obsm["perturbation"].sum(axis=1) > 1):
+        warnings.warn(
+            "Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap."
+        )
 
-    #plot the heatmap
-    figsize = (0.3*len(target_change.columns), 0.3*len(target_change.index)) if figsize is None else figsize
-    fig, ax = plt.subplots(1,1, figsize=figsize)
-    for key, val in [('center', 0), ('xticklabels', True), ('yticklabels', True), ('cbar_kws', {'label': value}), ('cmap', 'coolwarm')]:
+    # plot the heatmap
+    figsize = (
+        (0.3 * len(target_change.columns), 0.3 * len(target_change.index))
+        if figsize is None
+        else figsize
+    )
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    for key, val in [
+        ("center", 0),
+        ("xticklabels", True),
+        ("yticklabels", True),
+        ("cbar_kws", {"label": value}),
+        ("cmap", "coolwarm"),
+    ]:
         if key not in heatmap_kws.keys():
             heatmap_kws[key] = val
     sns.heatmap(target_change, ax=ax, **heatmap_kws)
-    ax.set_xlabel('Target Genes')
-    ax.set_ylabel('Perturbation')
+    ax.set_xlabel("Target Genes")
+    ax.set_ylabel("Perturbation")
 
     if return_fig:
         return fig
@@ -160,18 +198,18 @@ def target_change_heatmap(
 def target_gene_heatmap(
     adata,
     control_value,
-    perturbation_column='perturbation',
+    perturbation_column="perturbation",
     perturbation_gene_map=None,
     quiet=False,
     heatmap_kws={},
     figsize=None,
-    method='log2FC',
+    method="log2FC",
     return_fig=False,
     # check_norm=True, #for now assume that the heatmap should be calculated on adata.X
-    ):
+):
     """
     Generate a heatmap of target gene expression changes.
-    
+
     Parameters:
     adata: AnnData object
     control_value: str
@@ -190,75 +228,104 @@ def target_gene_heatmap(
         Method for calculating changes ('log2FC', 'zscore', etc.)
     return_fig: bool
         Whether to return the figure object
-    
+
     Returns:
     matplotlib.figure.Figure (if return_fig=True)
     """
-    
+
     if not quiet:
         print(f"Generating target gene heatmap with method: {method}")
         print(f"Using control value: {control_value}")
-    
+
     # Generate perturbation matrix
-    pm = get_perturbation_matrix(adata, perturbation_column, control_value=control_value, inplace=False, verbose=not quiet)
+    pm = get_perturbation_matrix(
+        adata,
+        perturbation_column,
+        control_value=control_value,
+        inplace=False,
+        verbose=not quiet,
+    )
 
-    if not quiet: print(f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column.")
+    if not quiet:
+        print(
+            f"\tFound {pm.shape[1]} unique perturbations in {perturbation_column} column."
+        )
 
-    #check that the gene a perturbation maps to is actually in adata
+    # check that the gene a perturbation maps to is actually in adata
     if perturbation_gene_map is not None:
-        #for now we assume all the perturbations are in the perturbation_gene_map
+        # for now we assume all the perturbations are in the perturbation_gene_map
         pm.columns = [perturbation_gene_map[x] for x in pm.columns]
 
-    #Warn if np.any(pm.sum(axis=1) > 1)
+    # Warn if np.any(pm.sum(axis=1) > 1)
     if np.any(pm.sum(axis=1) > 1):
-        warnings.warn("Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap.")
-
+        warnings.warn(
+            "Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap."
+        )
 
     check = [x in adata.var_names for x in pm.columns]
     if sum(check) == 0:
-        raise ValueError(f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column.")
+        raise ValueError(
+            f"No perturbations found in adata.var_names. Please check the perturbation_gene_map or perturbation_column."
+        )
     elif sum(check) != len(check):
-        if not quiet: print(f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names.")
+        if not quiet:
+            print(
+                f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names."
+            )
 
     genes = pm.columns[pm.columns.isin(adata.var_names)].sort_values()
     pm = pm.loc[:, pm.columns.sort_values()]
     gene_vals = adata[:, genes].X
-    #convert to numpy if sparse
+    # convert to numpy if sparse
     gene_vals = gene_vals.toarray() if issparse(gene_vals) else gene_vals
 
     ref_bool = (pm.sum(axis=1) == 0).values
     ref_mean = gene_vals[ref_bool].mean(axis=0)
 
-    if method not in ['log2FC', 'zscore', 'pct']:
-        raise ValueError(f"Method '{method}' not recognized. Please choose from 'log2FC', 'zscore', 'pct'.")
-    
-    if method == 'log2FC':
-        target_change = np.log2(gene_vals + 1) - np.log2(ref_mean + 1)
-        annot = 'log2FC target'
-    elif method == 'zscore':
-        target_change = (gene_vals - ref_mean) / gene_vals[ref_bool].std(axis=0)
-        annot = 'Zscore target'
-    elif method == 'pct':
-        target_change = ((gene_vals - ref_mean) / ref_mean) * 100
-        annot = 'Pct target change'
+    if method not in ["log2FC", "zscore", "pct"]:
+        raise ValueError(
+            f"Method '{method}' not recognized. Please choose from 'log2FC', 'zscore', 'pct'."
+        )
 
-    #get average
+    if method == "log2FC":
+        target_change = np.log2(gene_vals + 1) - np.log2(ref_mean + 1)
+        annot = "log2FC target"
+    elif method == "zscore":
+        target_change = (gene_vals - ref_mean) / gene_vals[ref_bool].std(axis=0)
+        annot = "Zscore target"
+    elif method == "pct":
+        target_change = ((gene_vals - ref_mean) / ref_mean) * 100
+        annot = "Pct target change"
+
+    # get average
     target_change = pm.T @ target_change
     target_change = target_change.T
     target_change /= pm.sum(axis=0).values
 
-    #save to df
-    target_change = pd.DataFrame(target_change.T.values, columns=genes, index=pm.columns)
+    # save to df
+    target_change = pd.DataFrame(
+        target_change.T.values, columns=genes, index=pm.columns
+    )
 
-    #plot the heatmap
-    figsize = (0.3*len(target_change.columns), 0.3*len(target_change.index)) if figsize is None else figsize
-    fig, ax = plt.subplots(1,1, figsize=figsize)
-    for key, val in [('center', 0), ('xticklabels', True), ('yticklabels', True), ('cbar_kws', {'label': annot}), ('cmap', 'coolwarm')]:
+    # plot the heatmap
+    figsize = (
+        (0.3 * len(target_change.columns), 0.3 * len(target_change.index))
+        if figsize is None
+        else figsize
+    )
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    for key, val in [
+        ("center", 0),
+        ("xticklabels", True),
+        ("yticklabels", True),
+        ("cbar_kws", {"label": annot}),
+        ("cmap", "coolwarm"),
+    ]:
         if key not in heatmap_kws.keys():
             heatmap_kws[key] = val
     sns.heatmap(target_change, ax=ax, **heatmap_kws)
-    ax.set_xlabel('Target Genes')
-    ax.set_ylabel('Perturbation')
+    ax.set_xlabel("Target Genes")
+    ax.set_ylabel("Perturbation")
     # plt.show()
     if return_fig:
         return fig
@@ -266,7 +333,18 @@ def target_gene_heatmap(
         plt.show()
 
 
-def dotplot(sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', cluster=True, cluster_kws={}, cluster_on='colors', **kwargs):
+def dotplot(
+    sizes,
+    colors,
+    return_ax=False,
+    ax=None,
+    center=0,
+    cmap="RdBu",
+    cluster=True,
+    cluster_kws={},
+    cluster_on="colors",
+    **kwargs,
+):
     """
     Assumes that sizes and colros are dataframes with matching indices and columns
     """
@@ -274,20 +352,19 @@ def dotplot(sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', clus
     assert sizes.shape == colors.shape
     N, M = sizes.shape
 
-    #confirm index and columns are the same
+    # confirm index and columns are the same
     assert all(sizes.index == colors.index)
     assert all(sizes.columns == colors.columns)
 
     if cluster:
-        if cluster_on == 'sizes':
+        if cluster_on == "sizes":
             sizes = cluster_df(sizes, **cluster_kws)
             colors = colors.loc[sizes.index, sizes.columns]
-        elif cluster_on == 'colors':
+        elif cluster_on == "colors":
             colors = cluster_df(colors, **cluster_kws)
             sizes = sizes.loc[colors.index, colors.columns]
         else:
             raise ValueError("cluster_on must be 'sizes' or 'colors'")
-
 
     ylabels = sizes.index
     xlabels = sizes.columns
@@ -296,27 +373,34 @@ def dotplot(sizes, colors, return_ax=False, ax=None, center=0, cmap='RdBu', clus
     s = sizes.values
     c = colors.values
 
-
     if ax is None:
         fig, ax = plt.subplots(figsize=(M, N))
 
-
-    R = s/s.max()/2
-    circles = [plt.Circle((j,i), radius=r) for r, j, i in zip(R.flat, x.flat, y.flat)]
-    col = PatchCollection(circles, array=c.flatten(), cmap=cmap, )
+    R = s / s.max() / 2
+    circles = [plt.Circle((j, i), radius=r) for r, j, i in zip(R.flat, x.flat, y.flat)]
+    col = PatchCollection(
+        circles,
+        array=c.flatten(),
+        cmap=cmap,
+    )
     ax.add_collection(col)
 
-    ax.set(xticks=np.arange(M), yticks=np.arange(N),
-        xticklabels=xlabels, yticklabels=ylabels)
-    ax.set_xticks(np.arange(M+1)-0.5, minor=True)
-    ax.set_yticks(np.arange(N+1)-0.5, minor=True)
-    ax.grid(which='minor')
+    ax.set(
+        xticks=np.arange(M),
+        yticks=np.arange(N),
+        xticklabels=xlabels,
+        yticklabels=ylabels,
+    )
+    ax.set_xticks(np.arange(M + 1) - 0.5, minor=True)
+    ax.set_yticks(np.arange(N + 1) - 0.5, minor=True)
+    ax.grid(which="minor")
 
-    cbar = ax.figure.colorbar(col, ax=ax, orientation='vertical', pad=0.00)
+    cbar = ax.figure.colorbar(col, ax=ax, orientation="vertical", pad=0.00)
     if return_ax:
         return ax
     else:
         plt.show()
+
 
 def plot_adj_matr(
     adata,
@@ -325,38 +409,44 @@ def plot_adj_matr(
     row_order=None,
     col_order=None,
     show=False,
-    **kwargs
-    ):
+    **kwargs,
+):
     """
     Plot an adjacency matrix with row colors
-    Args:  
+    Args:
     """
 
-    #check if .obsm['adjacency'] exists
-    if 'adjacency' not in adata.obsm.keys():
+    # check if .obsm['adjacency'] exists
+    if "adjacency" not in adata.obsm.keys():
         raise ValueError("No adjacency matrix found in adata.obsm['adjacency']")
 
     # if row color is list do nothing, if its string, assume its the key from adata.obs
 
-   
     if type(row_colors) == str:
         row_colors = adata.obs[row_colors]
-    elif (type(row_colors) == list) | (type(row_colors) == np.ndarray) | (type(row_colors) == pd.Series):
+    elif (
+        (type(row_colors) == list)
+        | (type(row_colors) == np.ndarray)
+        | (type(row_colors) == pd.Series)
+    ):
         pass
     else:
         row_colors = None
 
     if row_colors is not None:
-            if row_order is None:
-                    row_order = list(set(row_colors))
-            lut = dict(zip(row_order, sns.color_palette("Set2", len(row_order))))
-            # row_colors = row_colors.map(lut).values
-            row_colors = [lut[i] for i in row_colors]
-
+        if row_order is None:
+            row_order = list(set(row_colors))
+        lut = dict(zip(row_order, sns.color_palette("Set2", len(row_order))))
+        # row_colors = row_colors.map(lut).values
+        row_colors = [lut[i] for i in row_colors]
 
     if type(col_colors) == str:
         col_colors = adata.obs[col_colors]
-    elif (type(col_colors) == list) | (type(col_colors) == np.ndarray) | (type(col_colors) == pd.Series):
+    elif (
+        (type(col_colors) == list)
+        | (type(col_colors) == np.ndarray)
+        | (type(col_colors) == pd.Series)
+    ):
         pass
     else:
         col_colors = None
@@ -367,37 +457,61 @@ def plot_adj_matr(
         lut = dict(zip(col_order, sns.color_palette("Set2", len(col_order))))
         col_colors = [lut[i] for i in col_colors]
 
-
     sns.clustermap(
-        adata.obsm['adjacency'],
-        row_colors=row_colors,
-        col_colors=col_colors,
-        **kwargs)
+        adata.obsm["adjacency"], row_colors=row_colors, col_colors=col_colors, **kwargs
+    )
 
     if row_colors is not None:
-            handles = [Patch(facecolor=lut[name]) for name in lut]
-            plt.legend(handles, lut, title='Species',
-                    bbox_to_anchor=(0, 0), bbox_transform=plt.gcf().transFigure, loc='lower left')
+        handles = [Patch(facecolor=lut[name]) for name in lut]
+        plt.legend(
+            handles,
+            lut,
+            title="Species",
+            bbox_to_anchor=(0, 0),
+            bbox_transform=plt.gcf().transFigure,
+            loc="lower left",
+        )
 
     if show:
         plt.show()
 
-def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr', genes=None, **kwargs):
 
+def plot_double_single(
+    data,
+    double_condition,
+    pred=False,
+    metric="fit_spearmanr",
+    genes=None,
+    delim="|",
+    **kwargs,
+):
+    """
+    Plot a heatmap comparing single and double perturbation expression profiles.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns
+        double_condition: String representing dual perturbation (e.g., "GENE1|GENE2")
+        pred: Whether to include model predictions
+        metric: Metric to display in title
+        genes: Specific genes to include (default: all)
+        delim: Delimiter for splitting dual perturbations
+        **kwargs: Additional arguments passed to sns.heatmap
+    """
     # if data is anndata then make it df
     if type(data) == sc.AnnData:
         print("Found AnnData, densifying to df. This may take a while... ")
         data = data.to_df()
 
-    #confirm that all genes are in data
+    # confirm that all genes are in data
     if genes is None:
         gs = data.columns
-        print('using all genes')
+        print("using all genes")
     else:
         gs = [g for g in genes if g in data.columns]
         print(f"{len(gs)}/{len(genes)} genes found in data.")
 
-    A, B = get_singles(double_condition)
+    # Extract single perturbations from double
+    A, B = double_condition.split(delim)
     conds = [A, B, double_condition]
 
     sub = data.loc[conds, data.columns.isin(gs)]
@@ -406,33 +520,37 @@ def plot_double_single(data, double_condition, pred=False, metric='fit_spearmanr
     # sub.obs
     fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 
-    if pred is not None:
-        #add pred to sub
-        m, Z = get_model_fit(subdf, double_condition, targets=gs, plot=False)
-        subdf.loc[f"Predicted",gs] = Z.flatten()
-        title = f"{double_condition} \n{round(float(m['coef_a']),2)}({m['a']}) x {round(float(m['coef_b']),2)}({m['b']}) \nSpearman: {round(m[metric],2)}"
-        # ax.hlines([1], *ax.get_xlim())
+    if pred:
+        # add pred to sub
+        m, Z = norman_model(
+            subdf, double_condition, targets=gs, plot=False, verbose=False
+        )
+        if m is not None and Z is not None:
+            subdf.loc[f"Predicted", gs] = Z.flatten()
+            title = f"{double_condition} \n{round(float(m['coef_a']),2)}({m['a']}) x {round(float(m['coef_b']),2)}({m['b']}) \nSpearman: {round(m[metric],2)}"
+        else:
+            title = f"{double_condition} (prediction failed)"
     else:
         title = double_condition
 
     # #palette with centered coloring at 0
-    sns.heatmap(subdf, cmap='RdBu_r', center=0, ax=ax, **kwargs)
+    sns.heatmap(subdf, cmap="RdBu_r", center=0, ax=ax, **kwargs)
     # cg.ax_col_dendrogram.set_visible(False)
-    plt.ylabel('')
+    plt.ylabel("")
     plt.title(title)
     plt.show()
 
 
 def comparison_plot(
     pdf,
-    x='x', 
-    y='y',
-    metric='metric',
-    label=True, 
-    to_label=0.1, 
+    x="x",
+    y="y",
+    metric="metric",
+    label=True,
+    to_label=0.1,
     yx_line=True,
     show=False,
-    ):
+):
     """
     Plot a comparison between two vectors
     Args:
@@ -445,10 +563,10 @@ def comparison_plot(
         metric (function): function to use to calculate metric between x and y
     """
 
-    #calculate fit and residuals
+    # calculate fit and residuals
     sns.scatterplot(data=pdf, x=x, y=y, hue=metric)
 
-    #label top % by metric
+    # label top % by metric
     if to_label > 1:
         n = int(to_label)
     else:
@@ -457,46 +575,48 @@ def comparison_plot(
     texts = []
     for i, row in topN.iterrows():
         texts.append(plt.text(row[x], row[y], i, fontsize=10))
-    adjust_text(texts, arrowprops=dict(arrowstyle="-", color='k', lw=0.5))
+    adjust_text(texts, arrowprops=dict(arrowstyle="-", color="k", lw=0.5))
 
-    #add y = x line for min and max
+    # add y = x line for min and max
 
     mn, mx = min(pdf[x].min(), pdf[y].min()), max(pdf[x].max(), pdf[y].max())
-    plt.plot([mn, mx], [mn, mx], color='red', linestyle='--')
-    
+    plt.plot([mn, mx], [mn, mx], color="red", linestyle="--")
+
     if show:
         plt.show()
 
-def plot_kd(adata, gene, control_value, exp_val, col='perturbation'):
-    gene_vals = adata[:,gene].X.toarray().flatten()
+
+def plot_kd(adata, gene, control_value, exp_val, col="perturbation"):
+    gene_vals = adata[:, gene].X.toarray().flatten()
     ##plot AR for AR KD vs NTC|NTC
     gene_inds = adata.obs[col] == exp_val
     NTC_inds = adata.obs[col] == control_value
     print(f"Number of obs in NTC: {np.sum(NTC_inds)}")
     print(f"Number of obs in {gene} KD: {np.sum(gene_inds)}")
 
-
     plt.hist(gene_vals[NTC_inds], label=control_value, alpha=0.5, bins=30)
-    plt.hist(gene_vals[gene_inds], label=exp_val + ' KD', alpha=0.5, bins=30)
-    #add mean line for each group
-    plt.axvline(gene_vals[NTC_inds].mean(), color='blue')
-    plt.axvline(gene_vals[gene_inds].mean(), color='orange')
-    plt.title(f'{exp_val} KD vs {control_value} for gene {gene}')
+    plt.hist(gene_vals[gene_inds], label=exp_val + " KD", alpha=0.5, bins=30)
+    # add mean line for each group
+    plt.axvline(gene_vals[NTC_inds].mean(), color="blue")
+    plt.axvline(gene_vals[gene_inds].mean(), color="orange")
+    plt.title(f"{exp_val} KD vs {control_value} for gene {gene}")
     plt.legend()
     plt.show()
 
 
+import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
-import matplotlib.pyplot as plt 
 
-def corrfunc(x, y, ax=None, method='spearman', **kws):
+
+def corrfunc(x, y, ax=None, method="spearman", **kws):
     """Plot the correlation coefficient in the top left hand corner of a plot."""
-    func = spearmanr if method == 'spearman' else pearsonr
-    r, _ = func(x, y, nan_policy='omit')
+    func = spearmanr if method == "spearman" else pearsonr
+    r, _ = func(x, y, nan_policy="omit")
     ax = ax or plt.gca()
-    ax.annotate(f'ρ = {r:.2f}', xy=(.1, .9), xycoords=ax.transAxes)
+    ax.annotate(f"ρ = {r:.2f}", xy=(0.1, 0.9), xycoords=ax.transAxes)
 
-def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
+
+def square_plot(x, y, ax=None, show=True, corr=None, **kwargs):
     """
     Plot a square plot of x vs y with a y=x line
     Args:
@@ -505,51 +625,52 @@ def square_plot(x,y, ax=None, show=True, corr=None, **kwargs):
         ax (matplotlib.axes.Axes): axis to plot on
     """
     if ax is None:
-        fig, ax = plt.subplots(figsize=(5,5))
+        fig, ax = plt.subplots(figsize=(5, 5))
     sns.scatterplot(x=x, y=y, ax=ax, **kwargs)
-    #add y = x line for min and max
+    # add y = x line for min and max
     # ax[i].plot([0,1], [0,1], color='red', linestyle='--')
-    #get min and max values
+    # get min and max values
 
-    if corr == 'spearman':
-        corr = spearmanr(x,y, nan_policy='omit')[0]
-    elif corr == 'pearson':
-        corr = pearsonr(x,y)[0]
-    
+    if corr == "spearman":
+        corr = spearmanr(x, y, nan_policy="omit")[0]
+    elif corr == "pearson":
+        corr = pearsonr(x, y)[0]
+
     if corr is not None:
-        #put correlation bottom right
+        # put correlation bottom right
         ax.text(0.8, 0.1, f"r={round(corr,2)}", transform=ax.transAxes)
-
 
     min_val = min(x.min(), y.min())
     max_val = max(x.max(), y.max())
-    ax.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
+    ax.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--")
     if show:
         plt.show()
-
-
 
 
 ### guide plotting
 ##########################################################################
 
 
-
-## plot ratio of top 2 against counts: 
+## plot ratio of top 2 against counts:
 def plot_top2ratio_counts(features, show=False):
-        #plot QC for guide metrics
-    g = sns.jointplot(data = features.obs, y = 'log10_total_feature_counts', x = 'log2_ratio_2nd_1st_feature', kind = 'hex')
-    g.ax_joint.set_ylabel('log10(total counts/cell)')
-    g.ax_joint.set_xlabel('log2(2nd top feature / top feature)')
-    g.fig.suptitle('Cell level metrics')
+    # plot QC for guide metrics
+    g = sns.jointplot(
+        data=features.obs,
+        y="log10_total_feature_counts",
+        x="log2_ratio_2nd_1st_feature",
+        kind="hex",
+    )
+    g.ax_joint.set_ylabel("log10(total counts/cell)")
+    g.ax_joint.set_xlabel("log2(2nd top feature / top feature)")
+    g.fig.suptitle("Cell level metrics")
     g.fig.tight_layout()
     if show:
         plt.show()
 
     return g
-    
 
-#plot guide call proportions
+
+# plot guide call proportions
 # def plot_feature_count_metrics(features, ntc_var=None, show=False, ax=None):
 #     if ax is None:
 #         fig, ax = plt.subplots(1,1)
@@ -568,23 +689,131 @@ def plot_top2ratio_counts(features, show=False):
 #     ax.set_ylim(0,0.2)
 #     #change y ticks to be multiplied by 100
 #     ax.set_yticks(plt.yticks()[0], [f'{int(x*100)}%' for x in plt.yticks()[0]])
-#     if show: 
+#     if show:
 #         plt.show()
 #     return ax
 
-#plot guide call numbers as proportion of all cells
-        ## plot num features
-def plot_num_features(features, show=False, ax =None, **kwargs):
-    vc = features.obs['num_features'].value_counts()
+
+# plot guide call numbers as proportion of all cells
+## plot num features
+def plot_num_features(features, show=False, ax=None, **kwargs):
+    vc = features.obs["num_features"].value_counts()
     vc = vc.sort_index()
-    vc = vc/vc.sum() * 100
+    vc = vc / vc.sum() * 100
 
     if ax is None:
-        fig, ax = plt.subplots(1,1)
-    sns.barplot(data=vc.reset_index(),x='num_features', y='count', ax=ax, **kwargs)
-    ax.set_xlabel('# feature calls per cell')
-    ax.set_ylabel('% of all cells')
+        fig, ax = plt.subplots(1, 1)
+    sns.barplot(data=vc.reset_index(), x="num_features", y="count", ax=ax, **kwargs)
+    ax.set_xlabel("# feature calls per cell")
+    ax.set_ylabel("% of all cells")
     if show:
         plt.show()
-    
+
     return ax
+
+
+##########################################################################
+# Norman Model UMAP Analysis
+##########################################################################
+
+
+def _get_umap(xdata, random_state, **kwargs):
+    """Helper function for UMAP transformation."""
+    if not UMAP_AVAILABLE:
+        raise ImportError(
+            "UMAP and/or onesense packages are required for norman_model_umap. "
+            "Install with: pip install umap-learn onesense"
+        )
+
+    transformer = UMAP(random_state=random_state, **kwargs)
+    x = transformer.fit_transform(xdata)
+    return x, random_state
+
+
+def norman_model_umap(
+    gi_df,
+    rx=123,
+    ry=456,
+    plot_metric="coef_norm2",
+    save=None,  # path to save the UMAP figure as well as the dataframe itself
+    **kwargs,
+):
+    """
+    Generate UMAP visualization of genetic interaction results from Norman model.
+
+    Tom's approach for visualizing genetic interactions using UMAP dimensionality reduction
+    and onesense clustering to identify interaction patterns.
+
+    Args:
+        gi_df: DataFrame containing genetic interaction metrics from norman_model/fit_many
+        rx: Random state for x-axis UMAP
+        ry: Random state for y-axis UMAP
+        plot_metric: Metric to use for color coding ('coef_norm2', 'abs_log10_ratio_coefs', etc.)
+        save: Path prefix to save results (will create .csv and .png files)
+        **kwargs: Additional arguments passed to onesense
+
+    Returns:
+        pd.DataFrame: Original dataframe with added UMAP coordinates and cluster assignments
+    """
+
+    if not UMAP_AVAILABLE:
+        raise ImportError(
+            "UMAP and onesense packages are required for norman_model_umap. "
+            "Install with: pip install umap-learn onesense"
+        )
+
+    metric2term = {
+        "coef_norm2": "Magnitude",
+        "abs_log10_ratio_coefs": "Dominance",
+        "dcor_AB_fit": "Model fit",
+        "dcor_AnB_AB": "Similarity of singles to double",
+        "dcor_A_B": "Similarity between singles",
+        "dcor_ratio": "Equality of contribution",
+    }
+
+    regr_fit = gi_df.copy()
+    xs = regr_fit[["coef_norm2", "abs_log10_ratio_coefs", "dcor_AB_fit"]]
+    ys = regr_fit[["dcor_AnB_AB", "dcor_A_B", "dcor_ratio"]]
+
+    x_table = xs.copy()
+    x_table = (x_table) / x_table.std()
+    y_table = ys.copy()
+    y_table = (y_table) / y_table.std()
+
+    x, _ = _get_umap(
+        x_table, rx, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5
+    )
+    y, _ = _get_umap(
+        y_table, ry, n_components=1, n_neighbors=5, min_dist=0.05, spread=0.5
+    )
+
+    x = pd.Series(x.flatten().astype(float), index=x_table.index)
+    y = pd.Series(y.flatten().astype(float), index=y_table.index)
+
+    xs_list = [xs[col].values for col in xs.columns]
+    ys_list = [ys[col].values for col in ys.columns]
+
+    cx, cy = onesense(
+        x,
+        y,
+        regr_fit[plot_metric],
+        xs_list,
+        ys_list,
+        xlabels=[metric2term[col] for col in xs.columns],
+        ylabels=[metric2term[col] for col in ys.columns],
+        label=True,
+        figsize=[15, 15],
+        ylims=((0, 1), (0, 1), (0, 1)),
+        **kwargs,
+    )
+
+    regr_fit["x_umap"] = x
+    regr_fit["y_umap"] = y
+    regr_fit["x_cluster"] = cx
+    regr_fit["y_cluster"] = cy
+
+    if save:
+        regr_fit.to_csv(save + ".csv")
+        plt.savefig(save + ".png", bbox_inches="tight")
+
+    return regr_fit
