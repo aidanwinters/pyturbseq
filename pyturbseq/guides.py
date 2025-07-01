@@ -1,22 +1,39 @@
 ##########################################################################
-# 
+#
 # Functions for QC of sgRNA (guide) libraries
 #
 ##########################################################################
+from typing import Sequence
+
+import numpy as np
 from scipy.spatial import distance
 from tqdm import tqdm
-import numpy as np
 
-def hamming_dist(a, b):
-    return distance.hamming(list(a), list(b))
 
-def hamming_dist_matrix(ref):
+def hamming_dist(a: str, b: str) -> float:
+    """Compute the normalized Hamming distance between two strings.
+
+    Args:
+        a: First string.
+        b: Second string.
+    Returns:
+        Normalized Hamming distance between the two strings.
     """
-    This method take a list of strings, assumed to all be the same length, and pairwise haming distance
+    return float(distance.hamming(list(a), list(b)))
+
+
+def hamming_dist_matrix(ref: Sequence[str]) -> np.ndarray:
+    """Compute pairwise Hamming distance matrix for a collection of strings.
+
+    Args:
+        ref: Iterable of strings, all assumed to be equal length.
+    Returns:
+        A square NumPy array of pairwise Hamming distances.
     """
+
     dists = np.zeros((len(ref), len(ref)))
 
-    #get triangle upper indices
+    # get triangle upper indices
     triu_indices = np.triu_indices(len(ref), k=0)
 
     # iterate over trianlge indices

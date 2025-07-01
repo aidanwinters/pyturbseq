@@ -7,11 +7,13 @@
 # Regular expressions
 import re
 import warnings
-from typing import Dict, List, Optional, Union
+
+##IMPORTS
+from typing import Dict, Iterable, List, Optional, Union
+from sklearn.metrics import average_precision_score
 
 import matplotlib.pyplot as plt
 
-##IMPORTS
 # Data manipulation and computation
 import numpy as np
 import pandas as pd
@@ -40,7 +42,16 @@ from tqdm import tqdm
 ########################################################################################################################
 ########### Basic STRING parsing utils #################################################################################
 ########################################################################################################################
-def split_sort_trim(label, delim="|", delim2="_"):
+def split_sort_trim(label: str, delim: str = "|", delim2: str = "_") -> Optional[str]:
+    """Split a label by delimiters, sort the components, and rejoin them.
+
+    Args:
+        label: Input label string to process.
+        delim: Primary delimiter to split the label. Defaults to '|'.
+        delim2: Secondary delimiter to split each component before sorting. Defaults to '_'.
+    Returns:
+        Processed string with sorted components joined by primary delimiter, or None if input is not a string.
+    """
     # if not string then print
     if type(label) != str:
         return None
@@ -48,7 +59,19 @@ def split_sort_trim(label, delim="|", delim2="_"):
     return delim.join(vals)
 
 
-def split_compare(label, delim="|", delim2="_", expected_num=2):
+def split_compare(
+    label: str, delim: str = "|", delim2: str = "_", expected_num: int = 2
+) -> Optional[str]:
+    """Split a label and compare components, returning the common value if all are the same.
+
+    Args:
+        label: Input label string to process.
+        delim: Primary delimiter to split the label. Defaults to '|'.
+        delim2: Secondary delimiter to split each component. Defaults to '_'.
+        expected_num: Expected number of components after splitting. Defaults to 2.
+    Returns:
+        Common value if all components are the same and count matches expected_num, otherwise None.
+    """
     if type(label) != str:
         return None
     vals = [x.split(delim2)[0] for x in label.split(delim)]
@@ -58,10 +81,21 @@ def split_compare(label, delim="|", delim2="_", expected_num=2):
     elif len(set(vals)) == 1:
         return vals[0]
     else:
-        None
+        return None
 
 
-def split_sort_paste(l, split_delim="_", paste_delim="|"):
+def split_sort_paste(
+    l: Union[pd.Series, list], split_delim: str = "_", paste_delim: str = "|"
+) -> str:
+    """Split elements in a list or series, sort them, and paste them together.
+
+    Args:
+        l: Input list or pandas Series containing strings to process.
+        split_delim: Delimiter to split each element. Defaults to '_'.
+        paste_delim: Delimiter to join the sorted elements. Defaults to '|'.
+    Returns:
+        String with sorted elements joined by paste_delim.
+    """
     # if type is not series make it so
     if type(l) != pd.Series:
         l = pd.Series(l)
@@ -70,7 +104,22 @@ def split_sort_paste(l, split_delim="_", paste_delim="|"):
     return paste_delim.join(np.sort(l.values))
 
 
-def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True):
+def add_pattern_to_adata(
+    adata: sc.AnnData,
+    search_string: str,
+    pattern: str,
+    strict: bool = True,
+    quiet: bool = True,
+) -> None:
+    """Extract metadata from a search string using regex pattern and add to AnnData object.
+
+    Args:
+        adata: AnnData object to add metadata to.
+        search_string: String to search for pattern matches.
+        pattern: Regular expression pattern with named capture groups.
+        strict: Whether to raise an error if pattern is not found. Defaults to True.
+        quiet: Whether to suppress progress messages. Defaults to True.
+    """
     vp = print if not quiet else lambda *a, **k: None
     ##add each capture group to adata.obs
     match = re.search(pattern, search_string)
@@ -78,7 +127,7 @@ def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True)
         raise ValueError(
             f"In strict mode and could not extract metadata from {search_string}"
         )
-    else:
+    elif match is not None:
         for key, value in match.groupdict().items():
             vp(f"Adding {key} = {value}")
             adata.obs[key] = value
@@ -90,11 +139,22 @@ def add_pattern_to_adata(adata, search_string, pattern, strict=True, quiet=True)
 ########################################################################################################################
 
 
-def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
-    """
-    Filter an anndata object based on obs and var filters.
-    """
+def filter_adata(
+    adata: sc.AnnData,
+    obs_filters: Optional[List[str]] = None,
+    var_filters: Optional[List[str]] = None,
+    copy: bool = True,
+) -> sc.AnnData:
+    """Filter an AnnData object based on observation and variable filters.
 
+    Args:
+        adata: AnnData object to filter.
+        obs_filters: List of filter expressions to apply to observations. Each expression should be evaluable by pandas.eval(). Defaults to None.
+        var_filters: List of filter expressions to apply to variables. Each expression should be evaluable by pandas.eval(). Defaults to None.
+        copy: Whether to return a copy of the filtered data. Defaults to True.
+    Returns:
+        Filtered AnnData object.
+    """
     if obs_filters is not None:
         obs_filter = np.all([adata.obs.eval(f) for f in obs_filters], axis=0)
         adata = adata[obs_filter, :]
@@ -106,21 +166,31 @@ def filter_adata(adata, obs_filters=None, var_filters=None, copy=True):
     return adata
 
 
-def filter_to_feature_type(adata, feature_type="Gene Expression"):
-    """
-    Updates an anndata object to only include the GEX feature type in its .X slot.
-    Optionally adds the removed features to metadata
+def filter_to_feature_type(
+    adata: sc.AnnData, feature_type: str = "Gene Expression"
+) -> sc.AnnData:
+    """Filter AnnData object to only include a specific feature type.
+
+    Args:
+        adata: AnnData object containing multiple feature types.
+        feature_type: Feature type to retain. Defaults to 'Gene Expression'.
+    Returns:
+        Copy of AnnData object containing only the specified feature type.
     """
     return adata[:, adata.var["feature_types"] == feature_type].copy()
 
 
 def split_by_feature_type(
-    adata,
-    copy=True,
-):
-    """
-    Updates an anndata object to only include the GEX feature type in its .X slot.
-    Optionally adds the removed features to metadata
+    adata: sc.AnnData,
+    copy: bool = True,
+) -> Dict[str, sc.AnnData]:
+    """Split AnnData object into separate objects for each feature type.
+
+    Args:
+        adata: AnnData object containing multiple feature types.
+        copy: Whether to return copies of the split AnnData objects. Defaults to True.
+    Returns:
+        Dictionary mapping feature type names to corresponding AnnData objects.
     """
     out = {}
     for ftype in adata.var["feature_types"].unique():
@@ -133,17 +203,33 @@ def split_by_feature_type(
 ########################################################################################################################
 # read in the feature call column, split all of them by delimiter
 def generate_perturbation_matrix(
-    adata,
-    perturbation_col="feature_call",
-    delim="|",
-    control_value="NTC",
-    feature_list=None,
-    keep_ref=False,
-    set_ref_1=False,
-    return_boolean=True,
-    # sparse = True,
-    verbose=True,
-):
+    adata: AnnData,
+    perturbation_col: str = "feature_call",
+    delim: str = "|",
+    control_value: str = "NTC",
+    feature_list: Optional[Iterable[str]] = None,
+    keep_ref: bool = False,
+    set_ref_1: bool = False,
+    return_boolean: bool = True,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """Generate a binary perturbation matrix from ``adata.obs``.
+
+    Args:
+        adata: AnnData object with a column describing perturbations.
+        perturbation_col: Column in ``adata.obs`` with perturbation calls.
+        delim: Delimiter separating multiple perturbations within a cell.
+        control_value: Name of the reference perturbation.
+        feature_list: Optional list of perturbations to include.
+        keep_ref: Whether to keep the reference column in the output.
+        set_ref_1: If ``True`` and ``keep_ref`` is ``True`` set all reference
+            values to 1.
+        return_boolean: Return boolean matrix instead of integers.
+        verbose: Print progress messages.
+    Returns:
+        DataFrame where rows correspond to cells and columns to perturbations.
+    """
+
     # if there is no feature list, split all the features in the column and build one
     if feature_list is None:
         # get all the features but not nan
@@ -190,17 +276,22 @@ def generate_perturbation_matrix(
 
 
 def get_perturbation_matrix(
-    adata, perturbation_col="feature_call", inplace=True, **kwargs
-):
-    """
-    Add a perturbation matrix to an anndata object.
+    adata: AnnData,
+    perturbation_col: str = "feature_call",
+    inplace: bool = True,
+    **kwargs,
+) -> Optional[pd.DataFrame]:
+    """Add or return a perturbation matrix for ``adata``.
+
     Args:
-        adata: anndata object
-        perturbation_col: column in adata.obs that contains the perturbation information
-        feature_list: list of features to include in the perturbation matrix. If None, all features in the perturbation column will be included.
-        inplace: whether to add the perturbation matrix to the adata object or return it
+        adata: AnnData object to annotate.
+        perturbation_col: Column in ``adata.obs`` containing perturbation labels.
+        inplace: If ``True`` store the matrix in ``adata.obsm['perturbation']``.
+        **kwargs: Additional arguments forwarded to
+            :func:`generate_perturbation_matrix`.
     Returns:
-        adata object with perturbation matrix in adata.layers['perturbations']
+        If ``inplace`` is ``False`` the generated perturbation matrix is
+        returned as a DataFrame; otherwise ``None``.
     """
     pm = generate_perturbation_matrix(
         adata, perturbation_col=perturbation_col, **kwargs
@@ -210,25 +301,25 @@ def get_perturbation_matrix(
         adata.obsm["perturbation"] = pm.loc[adata.obs.index, :].copy()
         # cols = pm.columns.tolist()
         # adata.uns['perturbation_var'] = dict(zip(cols, range(len(cols))))
+        return None
     else:
         return pm.loc[adata.obs.index, :]
 
 
 def cluster_df(
     df, cluster_rows=True, cluster_cols=True, method="average", metric="euclidean"
-):
+) -> pd.DataFrame:
     """
     Reorders a DataFrame based on hierarchical clustering.
 
-    Parameters:
-    - df: The input DataFrame
-    - cluster_rows: Whether to cluster and reorder the rows
-    - cluster_cols: Whether to cluster and reorder the columns
-    - method: Linkage algorithm to use for clustering (e.g., 'average', 'single', 'complete')
-    - metric: Distance metric to use for clustering (e.g., 'euclidean', 'correlation'). Passed directly to scipy.stats.pdist
-
+    Args:
+        df: The input DataFrame
+        cluster_rows: Whether to cluster and reorder the rows
+        cluster_cols: Whether to cluster and reorder the columns
+        method: Linkage algorithm to use for clustering (e.g., 'average', 'single', 'complete')
+        metric: Distance metric to use for clustering (e.g., 'euclidean', 'correlation'). Passed directly to scipy.stats.pdist
     Returns:
-    - DataFrame reordered based on hierarchical clustering.
+        DataFrame reordered based on hierarchical clustering.
     """
 
     if cluster_cols:
@@ -247,24 +338,33 @@ def cluster_df(
     return df
 
 
-def cells_not_normalized(adata):
+def cells_not_normalized(adata: AnnData) -> bool:
+    """Check if the data appears to be normalized to counts per cell.
+
+    Args:
+        adata: AnnData object to check.
+
+    Returns:
+        True if data does not appear normalized (high variance in total counts), False otherwise.
+    """
     sums = np.array(adata.X.sum(axis=1)).flatten()
     dev = np.std(sums)
     return True if dev > 1 else False
 
 
-def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool):
+def _get_target_change_single_perturbation(
+    adata, gene, perturbed_bool, ref_bool
+) -> Dict[str, float]:
     """
     Compute the "percent change" for each cell against a reference.
 
-    Parameters:
-    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbed_bool: boolean array indicating which cells are perturbed
-    - gene: gene name
-    - ref_mean: reference mean expression value
-
+    Args:
+        adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
+        perturbed_bool: boolean array indicating which cells are perturbed
+        gene: gene name
+        ref_mean: reference mean expression value
     Returns:
-    - A list of "percent knocked down" for each cell.
+        A list of "percent knocked down" for each cell.
     """
 
     warnings.warn(
@@ -308,18 +408,17 @@ def _get_target_change_single_perturbation(adata, gene, perturbed_bool, ref_bool
 
 def _get_target_change_single_perturbation_indexed(
     adata, gene, perturbed_inds, ref_inds
-):
+) -> Dict[str, float]:
     """
     Compute the "percent change" for each cell against a reference.
 
-    Parameters:
-    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbed_bool: boolean array indicating which cells are perturbed
-    - gene: gene name
-    - ref_mean: reference mean expression value
-
+    Args:
+        adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
+        perturbed_bool: boolean array indicating which cells are perturbed
+        gene: gene name
+        ref_mean: reference mean expression value
     Returns:
-    - A list of "percent knocked down" for each cell.
+        A dict of metrics for each cell.
     """
 
     if gene not in adata.var_names:
@@ -353,7 +452,16 @@ def _get_target_change_single_perturbation_indexed(
     return out
 
 
-def unroll_target_change(adata, value):
+def unroll_target_change(adata: AnnData, value: str) -> np.ndarray:
+    """Unroll target change values based on perturbation matrix.
+
+    Args:
+        adata: AnnData object containing target change metrics in obsm.
+        value: Name of the metric to unroll from adata.obsm.
+
+    Returns:
+        Array of unrolled target change values.
+    """
     if ("perturbation" not in adata.obsm) | (value not in adata.obsm):
         raise ValueError(
             f"Could not find 'perturbation' or '{value}' in adata.obsm. Please run calculate_target_change first."
@@ -583,12 +691,17 @@ from hdbscan import HDBSCAN
 from scipy.spatial.distance import pdist, squareform
 
 
-def calculate_adjacency(adata, metric="correlation", inplace=True):
+def calculate_adjacency(
+    adata: AnnData, metric: str = "correlation", inplace: bool = True
+) -> np.ndarray:
     """
     Get adjacency matrix from adata.
     Args:
-        adata (AnnData): AnnData object
-        metric (str): metric to use for adjacency matrix, this is passed directly to scipy.spatial.distance.pdist.
+        adata: AnnData object
+        metric: metric to use for adjacency matrix, this is passed directly to scipy.spatial.distance.pdist.
+        inplace: whether to store the adjacency matrix in adata.obsm['adjacency']
+    Returns:
+        Adjacency matrix
     """
     if inplace:
         adata.obsm["adjacency"] = squareform(pdist(adata.X, metric=metric))
@@ -599,12 +712,18 @@ def calculate_adjacency(adata, metric="correlation", inplace=True):
         return squareform(pdist(adata.X.T, metric=metric))
 
 
-def cluster_adjacency(adata, method="leiden", inplace=True, **kwargs):
+def cluster_adjacency(
+    adata: AnnData, method: str = "leiden", inplace: bool = True, **kwargs
+) -> np.ndarray:
     """
     Cluster adjacency matrix.
     Args:
-        adata (AnnData): AnnData object, assumes .obsm['adjacency'] exists
-        method (str): clustering method, either 'hdbscan' or 'leiden'
+        adata: AnnData object, assumes .obsm['adjacency'] exists
+        method: clustering method, either 'hdbscan' or 'leiden'
+        inplace: whether to store the cluster labels in adata.obs['adjacency_cluster']
+        **kwargs: additional arguments passed to the clustering method
+    Returns:
+        Cluster labels
     """
     # if adjacency matrix does not exist, calculate it
     if "adjacency" not in adata.obsm.keys():
@@ -643,39 +762,28 @@ def cluster_adjacency(adata, method="leiden", inplace=True, **kwargs):
 
 
 def calculate_edistances(
-    adata,
-    obs_key="perturbation",
-    control_value="control",
-    dist="sqeuclidean",
-    sample_correct=True,
-    verbose=True,
-    use_X=False,
-    obsm_key="X_pca",
-):
+    adata: sc.AnnData,
+    obs_key: str = "perturbation",
+    control_value: Union[str, List[str]] = "control",
+    dist: str = "sqeuclidean",
+    sample_correct: bool = True,
+    verbose: bool = True,
+    use_X: bool = False,
+    obsm_key: str = "X_pca",
+) -> pd.Series:
     """Calculate E-distances between each perturbation and control.
 
-    This function calculates E-distances comparing each unique perturbation
-    to the specified control group(s).
-
-    Parameters:
-    obs_key: str
-        Key in adata.obs containing perturbation labels
-    control_value: str or list
-        Control group(s) to compare against
-    dist: str
-        Distance metric for E-distance calculation
-    sample_correct: bool
-        Whether to apply sample size correction
-    verbose: bool
-        Whether to print progress information
-    use_X: bool
-        Whether to use adata.X instead of obsm_key
-    obsm_key: str
-        Key in adata.obsm to use for distance calculation
-
+    Args:
+        adata: Annotated data matrix.
+        obs_key: Key in adata.obs specifying the groups. Defaults to 'perturbation'.
+        control_value: Control group(s) to compare against. Defaults to 'control'.
+        dist: Distance metric for scipy.spatial.distance.cdist. Defaults to 'sqeuclidean'.
+        sample_correct: Whether to use N-1 correction in variance calculations. Defaults to True.
+        verbose: Whether to show progress bar. Defaults to True.
+        use_X: Whether to use adata.X instead of obsm. Defaults to False.
+        obsm_key: Key in adata.obsm to use if use_X is False. Defaults to 'X_pca'.
     Returns:
-    pd.DataFrame:
-        E-distances for each perturbation compared to control, with name 'edistance'
+        E-distances for each perturbation compared to control, with name 'edistance'.
     """
     control_value = [control_value] if isinstance(control_value, str) else control_value
     groups = [g for g in pd.unique(adata.obs[obs_key]) if g not in control_value]
@@ -816,13 +924,15 @@ def zscore(
         return _zscore(adata, **kwargs)
 
 
-def pseudobulk(adata, groupby, **kwargs):
+def pseudobulk(adata: sc.AnnData, groupby: str, **kwargs) -> sc.AnnData:
     """
     Function to apply pseudobulk to anndata object
     Args:
-        adata (sc.AnnData): AnnData object with guide calls in adata.obs['guide']
-        groupby (str): column in adata.obs to group by
+        adata: AnnData object with guide calls in adata.obs['guide']
+        groupby: column in adata.obs to group by
         **kwargs: arguments to pass to pseudobulk function
+    Returns:
+        AnnData object with pseudobulked data
     """
     adpb = ADPBulk(adata, groupby=groupby, **kwargs)
     pseudobulk_matrix = adpb.fit_transform()
@@ -902,20 +1012,24 @@ def subsample_on_covariate(
 
 
 def subsample_on_multiple_covariates(
-    adata, columns, num_cells=None, min_cols=None, copy=True, seed=999
-):
-    """
-    Subsamples the AnnData object based on multiple covariates.
+    adata: sc.AnnData,
+    columns: List[str],
+    num_cells: Optional[int] = None,
+    min_cols: Optional[List[str]] = None,
+    copy: bool = True,
+    seed: int = 999,
+) -> sc.AnnData:
+    """Subsample AnnData object based on multiple covariates to balance group sizes.
 
-    Parameters:
-    - adata: AnnData object
-    - columns: list of columns to subsample on
-    - num_cells: target number of cells to subsample per group combination
-    - min_cols: the columns to calculate the minimum count for each group within this column
-    - copy: whether to return a copy of the subsampled AnnData object
-
+    Args:
+        adata: AnnData object to subsample.
+        columns: List of column names in adata.obs to subsample on.
+        num_cells: Target number of cells to subsample per group combination. Defaults to None.
+        min_cols: Columns to calculate the minimum count for each group within this column. Defaults to None.
+        copy: Whether to return a copy of the subsampled AnnData object. Defaults to True.
+        seed: Random seed for reproducibility. Defaults to 999.
     Returns:
-    - Subsampled AnnData object
+        Subsampled AnnData object.
     """
 
     # check to make sure index names are unique
@@ -962,17 +1076,17 @@ def subsample_on_multiple_covariates(
         return adata[inds, :]
 
 
-def _calculate_similarity(matrix_a, matrix_b, metric):
-    """
-    Calculate the pairwise similarity between two matrices.
+def _calculate_similarity(
+    matrix_a: np.ndarray, matrix_b: np.ndarray, metric: str
+) -> np.ndarray:
+    """Calculate the pairwise similarity between two matrices.
 
-    Parameters:
-        matrix_a (np.ndarray): First data matrix.
-        matrix_b (np.ndarray): Second data matrix.
-        metric (str): The similarity metric to use.
-
+    Args:
+        matrix_a: First data matrix.
+        matrix_b: Second data matrix.
+        metric: The similarity metric to use.
     Returns:
-        np.ndarray: Flattened array of pairwise distances.
+        Flattened array of pairwise distances.
     """
     distances = cdist(matrix_a, matrix_b, metric)
     return distances[np.triu_indices_from(distances, k=1)]
@@ -987,23 +1101,21 @@ def calculate_label_similarity(
     verbose: bool = True,
     n_jobs: int = 5,
     subsample: bool = True,
-):
+) -> pd.DataFrame:
     """
     Evaluate the similarity of labeling within single cells in an AnnData object.
 
-    Parameters:
-        adata (AnnData): The AnnData object containing single-cell data.
-        label_column (str): The name of the column in adata.obs that contains the labels.
-        metric (str): The similarity metric to use (default: 'euclidean').
-        subset (int): The number of cells to use as a random subset for the calculation (default: None).
-        group_subset (int): The number of unique labels to compare for across-label similarity (default: None).
-        verbose (bool): Whether to print verbose output (default: False).
-        n_jobs (int): The number of parallel jobs to run (default: 1).
-        subsample (bool): Whether to subsample the data to have equal representation of labels (default: True).
-
+    Args:
+        adata: The AnnData object containing single-cell data.
+        label_column: The name of the column in adata.obs that contains the labels.
+        metric: The similarity metric to use (default: 'euclidean').
+        subset: The number of cells to use as a random subset for the calculation (default: None).
+        group_subset: The number of unique labels to compare for across-label similarity (default: None).
+        verbose: Whether to print verbose output (default: False).
+        n_jobs: The number of parallel jobs to run (default: 1).
+        subsample: Whether to subsample the data to have equal representation of labels (default: True).
     Returns:
-        pd.DataFrame: DataFrame containing pairwise similarity results.
-
+        DataFrame containing pairwise similarity results.
     Example usage:
         adata = sc.read_h5ad('path_to_your_data.h5ad')
         similarity_results = calculate_label_similarity(adata, 'cell_type', metric='euclidean', subset=100, group_subset=True, verbose=True, n_jobs=4, subsample=True)
@@ -1096,16 +1208,14 @@ def calculate_label_similarity(
     return df
 
 
-def get_average_precision_score(res, *args, **kwargs):
+def get_average_precision_score(res: pd.DataFrame, *args, **kwargs) -> float:
     """
     Calculate the average precision score for the labeling similarity in an AnnData object.
 
-    Parameters:
-        res (pd.DataFrame): DataFrame containing similarity results.
-
+    Args:
+        res: DataFrame containing similarity results.
     Returns:
-        float: The average precision score.
-
+        The average precision score.
     Example usage:
         avg_prec_score = get_average_precision_score(similarity_results)
         print(f"Average Precision Score: {avg_prec_score:.2f}")

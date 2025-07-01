@@ -1,8 +1,10 @@
 import concurrent.futures
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import scanpy as sc
+from anndata import AnnData
 from dcor import distance_correlation
 from scipy.spatial import distance
 from scipy.stats import pearsonr, spearmanr
@@ -11,20 +13,19 @@ from tqdm import tqdm
 
 
 def norman_model(
-    data,
-    perturbations=None,
-    method="robust",
-    targets=None,
-    delim="|",
-    ref="NTC",
-    parallel=False,
-    processes=4,
-    plot=True,
-    verbose=True,
+    data: Union[pd.DataFrame, AnnData],
+    perturbations: Optional[Union[str, List[str]]] = None,
+    method: str = "robust",
+    targets: Optional[List[str]] = None,
+    delim: str = "|",
+    ref: str = "NTC",
+    parallel: bool = False,
+    processes: int = 4,
+    plot: bool = True,
+    verbose: bool = True,
     **kwargs,
-):
-    """
-    Tom Norman's approach for analyzing genetic interactions in perturbation data.
+) -> Union[Tuple[Dict[str, Any], np.ndarray], Tuple[pd.DataFrame, pd.DataFrame]]:
+    """Tom Norman's approach for analyzing genetic interactions in perturbation data.
 
     This function can handle single perturbations or multiple perturbations with automatic
     detection and parallel processing support.
@@ -70,18 +71,31 @@ def norman_model(
 
 
 def _norman_model_single(
-    data,
-    double,
-    method="robust",
-    targets=None,
-    delim="|",
-    ref="NTC",
-    plot=True,
-    verbose=True,
-):
-    """
-    Internal function to handle single perturbation analysis.
+    data: pd.DataFrame,
+    double: str,
+    method: str = "robust",
+    targets: Optional[List[str]] = None,
+    delim: str = "|",
+    ref: str = "NTC",
+    plot: bool = True,
+    verbose: bool = True,
+) -> Tuple[Optional[Dict[str, Any]], Optional[np.ndarray]]:
+    """Internal function to handle single perturbation analysis.
+
     This is the original norman_model functionality.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns.
+        double: Single dual perturbation to analyze.
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression.
+        targets: List of target genes to analyze.
+        delim: Delimiter for splitting dual perturbations.
+        ref: Reference/control value.
+        plot: Whether to generate plots.
+        verbose: Whether to print progress.
+
+    Returns:
+        Tuple of (metrics_dict, predictions_array) or (None, None) if error.
     """
     A, B = double.split(delim)
     if verbose:
@@ -186,19 +200,33 @@ def _norman_model_single(
 
 
 def _norman_model_multiple(
-    data,
-    perturbations=None,
-    method="robust",
-    targets=None,
-    delim="|",
-    ref="NTC",
-    parallel=False,
-    processes=4,
-    verbose=True,
-):
-    """
-    Internal function to handle multiple perturbations analysis.
+    data: pd.DataFrame,
+    perturbations: Optional[List[str]] = None,
+    method: str = "robust",
+    targets: Optional[List[str]] = None,
+    delim: str = "|",
+    ref: str = "NTC",
+    parallel: bool = False,
+    processes: int = 4,
+    verbose: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Internal function to handle multiple perturbations analysis.
+
     This incorporates the original fit_many functionality.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns.
+        perturbations: List of perturbations to analyze or None for auto-detection.
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression.
+        targets: List of target genes to analyze.
+        delim: Delimiter for identifying/splitting dual perturbations.
+        ref: Reference/control value to exclude from auto-detection.
+        parallel: Whether to use parallel processing.
+        processes: Number of processes for parallel execution.
+        verbose: Whether to print progress.
+
+    Returns:
+        Tuple of (metrics_DataFrame, predictions_DataFrame).
     """
     # Determine which perturbations to analyze
     if perturbations is None:
@@ -247,8 +275,29 @@ def _norman_model_multiple(
         )
 
 
-def _fit_many_sequential(data, perturbations, method, targets, delim, ref, verbose):
-    """Sequential execution of norman_model for multiple perturbations."""
+def _fit_many_sequential(
+    data: pd.DataFrame,
+    perturbations: List[str],
+    method: str,
+    targets: Optional[List[str]],
+    delim: str,
+    ref: str,
+    verbose: bool,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Sequential execution of norman_model for multiple perturbations.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns.
+        perturbations: List of perturbations to analyze.
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression.
+        targets: List of target genes to analyze.
+        delim: Delimiter for splitting dual perturbations.
+        ref: Reference/control value.
+        verbose: Whether to print progress.
+
+    Returns:
+        Tuple of (metrics_DataFrame, predictions_DataFrame).
+    """
     results = []
     predictions = []
 
@@ -279,9 +328,30 @@ def _fit_many_sequential(data, perturbations, method, targets, delim, ref, verbo
 
 
 def _fit_many_parallel(
-    data, perturbations, processes, method, targets, delim, ref, verbose
-):
-    """Parallel execution of norman_model for multiple perturbations."""
+    data: pd.DataFrame,
+    perturbations: List[str],
+    processes: int,
+    method: str,
+    targets: Optional[List[str]],
+    delim: str,
+    ref: str,
+    verbose: bool,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Parallel execution of norman_model for multiple perturbations.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns.
+        perturbations: List of perturbations to analyze.
+        processes: Number of processes for parallel execution.
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression.
+        targets: List of target genes to analyze.
+        delim: Delimiter for splitting dual perturbations.
+        ref: Reference/control value.
+        verbose: Whether to print progress.
+
+    Returns:
+        Tuple of (metrics_DataFrame, predictions_DataFrame).
+    """
     results = []
     predictions = []
 
@@ -333,12 +403,16 @@ def _fit_many_parallel(
 
 
 # Deprecated compatibility functions
-def fit_many(*args, **kwargs):
-    """
-    Deprecated: Use norman_model instead.
+def fit_many(
+    *args, **kwargs
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[Dict[str, Any], np.ndarray]]:
+    """Deprecated: Use norman_model instead.
 
     This function is kept for backwards compatibility but will be removed
     in a future version. Use norman_model with a list of perturbations instead.
+
+    Returns:
+        Same as norman_model function.
     """
     import warnings
 
@@ -355,8 +429,14 @@ def fit_many(*args, **kwargs):
         return norman_model(*args, **kwargs)
 
 
-def get_model_fit(*args, **kwargs):
-    """Deprecated: Use norman_model instead."""
+def get_model_fit(
+    *args, **kwargs
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[Dict[str, Any], np.ndarray]]:
+    """Deprecated: Use norman_model instead.
+
+    Returns:
+        Same as norman_model function.
+    """
     import warnings
 
     warnings.warn(

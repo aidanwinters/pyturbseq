@@ -12,18 +12,24 @@ import math
 from .utils import add_pattern_to_adata
 
 
+from typing import Optional, Dict, Any
+
+
 def parse_CR_h5(
-    cellranger_h5_path,
-    guide_call_csv=None,
-    pattern=None,
-    quiet=False,
-    ):
-    """
-    Read in 10x data from a CRISPR screen.
-    Args: 
-        CR_out: path to the output directory of the CRISPR screen
-        pattern: regex pattern to extract metadata from the file name
-        add_guide_calls: whether to add guide calls to the adata.obs
+    cellranger_h5_path: str,
+    guide_call_csv: Optional[str] = None,
+    pattern: Optional[str] = None,
+    quiet: bool = False,
+) -> sc.AnnData:
+    """Read in 10x data from a CRISPR screen.
+
+    Args:
+        cellranger_h5_path: Path to the ``filtered_feature_bc_matrix.h5`` file.
+        guide_call_csv: Optional path to a guide call ``.csv`` file.
+        pattern: Regex pattern used to extract metadata from ``cellranger_h5_path``.
+        quiet: If ``True`` suppresses printed output.
+    Returns:
+        AnnData object with optional guide call annotations.
     """
     vp = print if not quiet else lambda *a, **k: None
 
@@ -62,43 +68,62 @@ def parse_CR_h5(
 
     return(adata)
 
-def parse_umi(x):
-    """
-    Parse the output of the CRISPR analysis from cellranger pipeline to get the total number of UMIs and the max UMI
+def parse_umi(x: Any) -> Dict[str, float]:
+    """Parse ``num_umis`` field from the Cellranger output.
+
+    Args:
+        x: Value from the ``num_umis`` column. Can be a float or pipe delimited
+            string of UMI counts.
+    Returns:
+        Dictionary with total UMIs, maximum UMI, and ratio of the second highest
+        to the highest UMI count.
     """
     if isinstance(x, float):
         return {
-            'CR_total_umi': x,
-            'CR_max_umi': x,
-            'CR_ratio_2nd_1st': math.nan
+            "CR_total_umi": x,
+            "CR_max_umi": x,
+            "CR_ratio_2nd_1st": math.nan,
         }
-    split = [int(i) for i in x.split('|')]
+    split = [int(i) for i in x.split("|")]
     split.sort(reverse=True)
     m = {
-        'CR_total_umi': sum(split),
-        'CR_max_umi': split[0],
-        'CR_ratio_2nd_1st': math.nan if len(split) == 1 else split[1]/split[0]
+        "CR_total_umi": sum(split),
+        "CR_max_umi": split[0],
+        "CR_ratio_2nd_1st": math.nan if len(split) == 1 else split[1] / split[0],
     }
     return m
 
-def add_CR_umi_metrics(adata):
+def add_CR_umi_metrics(adata: sc.AnnData) -> sc.AnnData:
+    """Add CRISPR UMI metrics to ``adata.obs``.
+
+    Args:
+        adata: AnnData object returned by :func:`parse_CR_h5`.
+    Returns:
+        The modified AnnData object with additional columns ``CR_total_umi``,
+        ``CR_max_umi`` and ``CR_ratio_2nd_1st`` added to ``adata.obs``.
     """
-    Add the CRISPR UMI metrics to the adata.obs
-    """
-    df = pd.DataFrame([parse_umi(x) for x in adata.obs['num_umis']], index=adata.obs.index)
-    #merge by index but keep index as index
+    df = pd.DataFrame([parse_umi(x) for x in adata.obs["num_umis"]], index=adata.obs.index)
+    # merge by index but keep index as index
     adata.obs = adata.obs.merge(df, left_index=True, right_index=True)
     return adata
 
 def add_CR_sgRNA(
-    adata,
-    calls_file="protospacer_calls_per_cell.csv",
-    library_ref_file=None,
-    inplace=True,
-    quiet=False,
-    ):
-    """
-    Uses the cellranger calls and merges them with anndata along with some metrics
+    adata: sc.AnnData,
+    calls_file: str = "protospacer_calls_per_cell.csv",
+    library_ref_file: Optional[str] = None,
+    inplace: bool = True,
+    quiet: bool = False,
+) -> Optional[sc.AnnData]:
+    """Merge sgRNA calls from Cellranger output into ``adata``.
+
+    Args:
+        adata: AnnData object to annotate.
+        calls_file: CSV file produced by Cellranger ``protospacer_calls_per_cell.csv``.
+        library_ref_file: Optional reference file for sgRNA library (unused currently).
+        inplace: If ``True`` modify ``adata`` in place.
+        quiet: If ``True`` suppresses printed output.
+    Returns:
+        Optionally returns a new AnnData object if ``inplace`` is ``False``.
     """
     #confirm that calls_file exists
     if not os.path.exists(calls_file):
@@ -117,9 +142,18 @@ def add_CR_sgRNA(
 
     if not inplace:
         return adata
+    return None
 
 
-def parse_CR_flex_metrics(df):
+def parse_CR_flex_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize metric values from Cellranger FLEX output.
+
+    Args:
+        df: DataFrame as read from ``metrics_summary.csv``.
+    Returns:
+        DataFrame with numeric ``Metric Value`` column converted to floats.
+    """
+
     df = df.copy()
     #formatted like so: 40.00%
     pct_fmt = df['Metric Value'].str.endswith('%', na=False)
