@@ -10,7 +10,6 @@ import warnings
 
 ##IMPORTS
 from typing import Dict, Iterable, List, Optional, Union
-from sklearn.metrics import average_precision_score
 
 import matplotlib.pyplot as plt
 
