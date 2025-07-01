@@ -12,6 +12,65 @@ from tqdm import tqdm
 
 def norman_model(
     data,
+    perturbations=None,
+    method="robust",
+    targets=None,
+    delim="|",
+    ref="NTC",
+    parallel=False,
+    processes=4,
+    plot=True,
+    verbose=True,
+    **kwargs,
+):
+    """
+    Tom Norman's approach for analyzing genetic interactions in perturbation data.
+
+    This function can handle single perturbations or multiple perturbations with automatic
+    detection and parallel processing support.
+
+    Args:
+        data: DataFrame with perturbations as index and genes as columns, or AnnData object
+        perturbations:
+            - str: Single dual perturbation to analyze (e.g., "GENE1|GENE2")
+            - list: List of perturbations to analyze
+            - None (default): Auto-detect all dual perturbations (containing delim, excluding ref)
+        method: "robust" for TheilSenRegressor or "linear" for LinearRegression
+        targets: List of target genes to analyze (default: all genes)
+        delim: Delimiter for identifying/splitting dual perturbations
+        ref: Reference/control value to exclude from auto-detection (default: "NTC")
+        parallel: Whether to use parallel processing (only for multiple perturbations)
+        processes: Number of processes for parallel execution
+        plot: Whether to generate plots (placeholder for future, only used for single perturbations)
+        verbose: Whether to print progress
+        **kwargs: Additional arguments (for backwards compatibility)
+
+    Returns:
+        For single perturbation (str):
+            tuple: (metrics_dict, predictions_array)
+        For multiple perturbations (list or None):
+            tuple: (metrics_DataFrame, predictions_DataFrame)
+    """
+    # Convert AnnData to DataFrame if needed
+    if type(data) == sc.AnnData:
+        if verbose:
+            print("Found AnnData, densifying to df. This may take a while... ")
+        data = data.to_df()
+
+    # Handle single perturbation case
+    if isinstance(perturbations, str):
+        return _norman_model_single(
+            data, perturbations, method, targets, delim, ref, plot, verbose
+        )
+
+    # Handle multiple perturbations case
+    return _norman_model_multiple(
+        data, perturbations, method, targets, delim, ref, parallel, processes, verbose
+    )
+
+
+def _norman_model_single(
+    data,
     double,
     method="robust",
     targets=None,
@@ -21,29 +80,9 @@ def norman_model(
     verbose=True,
 ):
     """
-    Tom Norman's approach rewritten by Aidan Winters
-    Assumes no observations but many features.
-    Assumes that perturbation is index of observations (this is the case for pseudobulked to perturbation)
-    Assumes data is pd DataFrame
-
-    Args:
-        data: DataFrame with perturbations as index and genes as columns
-        double: String representing dual perturbation (e.g., "GENE1|GENE2")
-        method: "robust" for TheilSenRegressor or "linear" for LinearRegression
-        targets: List of target genes to analyze (default: all genes)
-        delim: Delimiter for splitting dual perturbations
-        ref: Reference/control value (not used in current implementation)
-        plot: Whether to generate plots (placeholder for future)
-        verbose: Whether to print progress
-
-    Returns:
-        tuple: (metrics_dict, predictions_array)
+    Internal function to handle single perturbation analysis.
+    This is the original norman_model functionality.
     """
-    # if data is anndata then make it df
-    if type(data) == sc.AnnData:
-        print("Found AnnData, densifying to df. This may take a while... ")
-        data = data.to_df()
-
     A, B = double.split(delim)
     if verbose:
         print("Fitting model for", double)
@@ -60,10 +99,10 @@ def norman_model(
     else:
         targets = [t for t in targets if t in data.columns]
 
-    singlesX = data.loc[[A, B], targets].T
-    aX = data.loc[A, targets].T
-    bX = data.loc[B, targets].T
-    doubleX = data.loc[double, targets].T
+    singlesX = data.loc[[A, B], targets].T.astype(np.float64)
+    aX = data.loc[A, targets].T.astype(np.float64)
+    bX = data.loc[B, targets].T.astype(np.float64)
+    doubleX = data.loc[double, targets].T.astype(np.float64)
 
     if method == "robust":
         regr = TheilSenRegressor(
@@ -120,9 +159,7 @@ def norman_model(
     out["dcor_AnB_AB"] = distance_correlation(
         singlesX, doubleX
     )  # distance correlation between [A,B] and AB (the double perturbation)
-    out["dcor_A_B"] = distance_correlation(
-        aX, bX
-    )  # distance correlation between A and B
+    out["dcor_A_B"] = distance_correlation(aX, bX)
     out["dcor_AnB_fit"] = distance_correlation(
         singlesX, Z
     )  # distance correlation between the [A, B] and predicted AB
@@ -148,47 +185,28 @@ def norman_model(
     return out, Z
 
 
-def fit_many(
+def _norman_model_multiple(
     data,
     perturbations=None,
+    method="robust",
+    targets=None,
     delim="|",
     ref="NTC",
     parallel=False,
     processes=4,
-    **kwargs,
+    verbose=True,
 ):
     """
-    Unified function to fit Norman model to multiple perturbations.
-
-    Args:
-        data: DataFrame with perturbations as index and genes as columns
-        perturbations:
-            - None: Run on all dual perturbations (containing delim, excluding ref)
-            - str: Run on single perturbation
-            - list: Run on specified list of perturbations
-        delim: Delimiter for identifying dual perturbations
-        ref: Reference/control value to exclude from analysis
-        parallel: Whether to use parallel processing
-        processes: Number of processes for parallel execution
-        **kwargs: Additional arguments passed to norman_model
-
-    Returns:
-        tuple: (metrics_DataFrame, predictions_DataFrame)
+    Internal function to handle multiple perturbations analysis.
+    This incorporates the original fit_many functionality.
     """
-    # if data is anndata then make it df
-    if type(data) == sc.AnnData:
-        print("Found AnnData, densifying to df. This may take a while... ")
-        data = data.to_df()
-
     # Determine which perturbations to analyze
     if perturbations is None:
         # Run on all dual perturbations (exclude control)
         all_perts = data.index.tolist()
         perturbations = [p for p in all_perts if delim in p and ref not in p]
-        print(f"Auto-detected {len(perturbations)} dual perturbations to analyze")
-    elif isinstance(perturbations, str):
-        # Single perturbation
-        perturbations = [perturbations]
+        if verbose:
+            print(f"Auto-detected {len(perturbations)} dual perturbations to analyze")
     elif isinstance(perturbations, list):
         # List of perturbations provided
         pass
@@ -198,33 +216,58 @@ def fit_many(
     # Validate that all perturbations exist in data
     missing_perts = [p for p in perturbations if p not in data.index]
     if missing_perts:
-        print(
-            f"Warning: {len(missing_perts)} perturbations not found in data: {missing_perts[:5]}..."
-        )
+        if verbose:
+            print(
+                f"Warning: {len(missing_perts)} perturbations not found in data: {missing_perts[:5]}..."
+            )
         perturbations = [p for p in perturbations if p in data.index]
 
+    # Handle case where no valid perturbations are found
     if len(perturbations) == 0:
-        raise ValueError("No valid perturbations found to analyze")
+        if verbose:
+            print("No valid perturbations found to analyze - returning empty results")
+        # Return empty DataFrames with proper structure
+        metrics_df = pd.DataFrame(columns=["perturbation", "a", "b"]).set_index(
+            "perturbation"
+        )
+        predictions_df = pd.DataFrame(index=[], columns=data.columns)
+        return metrics_df, predictions_df
 
-    print(f"Analyzing {len(perturbations)} perturbations...")
+    if verbose:
+        print(f"Analyzing {len(perturbations)} perturbations...")
 
     # Run analysis
     if parallel and len(perturbations) > 1:
-        return _fit_many_parallel(data, perturbations, processes, **kwargs)
+        return _fit_many_parallel(
+            data, perturbations, processes, method, targets, delim, ref, verbose
+        )
     else:
-        return _fit_many_sequential(data, perturbations, **kwargs)
+        return _fit_many_sequential(
+            data, perturbations, method, targets, delim, ref, verbose
+        )
 
 
-def _fit_many_sequential(data, perturbations, **kwargs):
+def _fit_many_sequential(data, perturbations, method, targets, delim, ref, verbose):
     """Sequential execution of norman_model for multiple perturbations."""
     results = []
     predictions = []
 
-    for pert in tqdm(perturbations, desc="Fitting models"):
-        out, Z = norman_model(data, pert, verbose=False, **kwargs)
+    for pert in tqdm(perturbations, desc="Fitting models", disable=not verbose):
+        out, Z = _norman_model_single(
+            data, pert, method, targets, delim, ref, plot=False, verbose=False
+        )
         if out is not None:
             results.append(out)
             predictions.append(Z)
+
+    # Handle case where no results were found
+    if len(results) == 0:
+        # Return empty DataFrames with proper structure
+        metrics_df = pd.DataFrame(columns=["perturbation", "a", "b"]).set_index(
+            "perturbation"
+        )
+        predictions_df = pd.DataFrame(index=[], columns=data.columns)
+        return metrics_df, predictions_df
 
     # Convert to DataFrames
     metrics_df = pd.DataFrame(results).set_index("perturbation")
@@ -235,7 +278,9 @@ def _fit_many_sequential(data, perturbations, **kwargs):
     return metrics_df, predictions_df
 
 
-def _fit_many_parallel(data, perturbations, processes, **kwargs):
+def _fit_many_parallel(
+    data, perturbations, processes, method, targets, delim, ref, verbose
+):
     """Parallel execution of norman_model for multiple perturbations."""
     results = []
     predictions = []
@@ -243,7 +288,17 @@ def _fit_many_parallel(data, perturbations, processes, **kwargs):
     with concurrent.futures.ProcessPoolExecutor(max_workers=processes) as executor:
         # Submit all jobs
         futures = [
-            executor.submit(norman_model, data, pert, verbose=False, **kwargs)
+            executor.submit(
+                _norman_model_single,
+                data,
+                pert,
+                method,
+                targets,
+                delim,
+                ref,
+                False,
+                False,
+            )
             for pert in perturbations
         ]
 
@@ -252,11 +307,21 @@ def _fit_many_parallel(data, perturbations, processes, **kwargs):
             concurrent.futures.as_completed(futures),
             total=len(perturbations),
             desc="Fitting models",
+            disable=not verbose,
         ):
             out, Z = future.result()
             if out is not None:
                 results.append(out)
                 predictions.append(Z)
+
+    # Handle case where no results were found
+    if len(results) == 0:
+        # Return empty DataFrames with proper structure
+        metrics_df = pd.DataFrame(columns=["perturbation", "a", "b"]).set_index(
+            "perturbation"
+        )
+        predictions_df = pd.DataFrame(index=[], columns=data.columns)
+        return metrics_df, predictions_df
 
     # Convert to DataFrames
     metrics_df = pd.DataFrame(results).set_index("perturbation")
@@ -267,7 +332,29 @@ def _fit_many_parallel(data, perturbations, processes, **kwargs):
     return metrics_df, predictions_df
 
 
-# Legacy compatibility - keep for backwards compatibility but deprecate
+# Deprecated compatibility functions
+def fit_many(*args, **kwargs):
+    """
+    Deprecated: Use norman_model instead.
+
+    This function is kept for backwards compatibility but will be removed
+    in a future version. Use norman_model with a list of perturbations instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "fit_many is deprecated. Use norman_model with perturbations as a list or None instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Convert to new norman_model call
+    if len(args) >= 2:
+        data, perturbations = args[0], args[1]
+        return norman_model(data, perturbations, *args[2:], **kwargs)
+    else:
+        return norman_model(*args, **kwargs)
+
+
 def get_model_fit(*args, **kwargs):
     """Deprecated: Use norman_model instead."""
     import warnings

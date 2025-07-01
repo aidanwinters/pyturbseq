@@ -76,10 +76,16 @@ all_deg_results = prtb.de.get_all_degs(adata, design_col='feature_call', control
 
 # Analyze genetic interactions (for dual perturbation data)
 # Single interaction: analyze specific dual perturbation
-result, prediction = prtb.interaction.get_model_fit(data, 'GENE1|GENE2', ref='NTC')
+result, prediction = prtb.interaction.norman_model(data, 'GENE1|GENE2')
 
-# Multiple interactions: analyze all dual perturbations vs control
-interaction_results = prtb.interaction.fit_many(data, dual_perturbation_list, ref='NTC')
+# Multiple interactions: analyze specific dual perturbations
+interaction_results = prtb.interaction.norman_model(data, dual_perturbation_list)
+
+# Auto-detect and analyze all dual perturbations (default behavior)
+interaction_results = prtb.interaction.norman_model(data)
+
+# Parallel processing for large datasets
+interaction_results = prtb.interaction.norman_model(data, parallel=True, processes=8)
 
 # Generate visualizations
 prtb.plot.target_change_heatmap(adata, perturbation_column='feature_call')

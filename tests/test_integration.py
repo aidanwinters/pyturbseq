@@ -229,8 +229,8 @@ class TestDataCompatibility:
             if len(dual_perts) > 0:
                 test_dual = dual_perts[0]
 
-                result, prediction = prtb.interaction.get_model_fit(
-                    adata, test_dual, ref="control"
+                result, prediction = prtb.interaction.norman_model(
+                    adata, test_dual, ref="NTC"
                 )
 
                 # Should return results

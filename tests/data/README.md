@@ -7,7 +7,6 @@ This directory contains small real datasets used for integration testing of pytu
 ### `norman2019_subset_singles.h5ad.gz`
 - **Source**: Norman & Weissman 2019
 - **Content**: Single perturbation CRISPR screen data
-- **Size**: ~1,138 cells × 1,003 genes
 - **Perturbations**:
   - `control` (500 cells)
   - Single gene knockouts: `SET`, `KLF1`, `SAMD1`, `PTPN12`, `COL2A1`
@@ -16,7 +15,6 @@ This directory contains small real datasets used for integration testing of pytu
 ### `norman2019_subset_doubles.h5ad.gz`
 - **Source**: Norman & Weissman 2019
 - **Content**: Single and dual perturbation CRISPR screen data
-- **Size**: ~1,314 cells × 1,003 genes
 - **Perturbations**:
   - `control` (500 cells)
   - Single gene knockouts: `SET`, `KLF1`, `SAMD1`, `PTPN12`, `COL2A1`

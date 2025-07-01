@@ -164,11 +164,6 @@ def target_change_heatmap(
         warnings.warn("Some values are infinite. Replacing with NaN.")
         target_change = target_change.replace([np.inf, -np.inf], np.nan)
 
-    if np.any(adata.obsm["perturbation"].sum(axis=1) > 1):
-        warnings.warn(
-            "Some genes are perturbed by more than one perturbation. This is not recommended for this heatmap."
-        )
-
     # plot the heatmap
     figsize = (
         (0.3 * len(target_change.columns), 0.3 * len(target_change.index))
@@ -745,7 +740,7 @@ def norman_model_umap(
     and onesense clustering to identify interaction patterns.
 
     Args:
-        gi_df: DataFrame containing genetic interaction metrics from norman_model/fit_many
+        gi_df: DataFrame containing genetic interaction metrics from norman_model
         rx: Random state for x-axis UMAP
         ry: Random state for y-axis UMAP
         plot_metric: Metric to use for color coding ('coef_norm2', 'abs_log10_ratio_coefs', etc.)

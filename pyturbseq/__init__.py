@@ -23,7 +23,7 @@ if sys.version_info < (3, 9):
     raise ImportError("pyturbseq requires Python 3.9 or higher")
 
 from .de import get_all_degs, get_degs
-from .interaction import fit_many, norman_model
+from .interaction import norman_model
 from .plot import plot_label_similarity, target_change_heatmap, target_gene_heatmap
 
 # Make key functions easily accessible
@@ -55,7 +55,6 @@ __all__ = [
     "get_degs",
     "get_all_degs",
     "norman_model",
-    "fit_many",
     "target_change_heatmap",
     "target_gene_heatmap",
     "plot_label_similarity",

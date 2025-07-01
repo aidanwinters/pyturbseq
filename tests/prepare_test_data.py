@@ -22,7 +22,7 @@ def prepare_norman2019_singles_test_data(
     ),
     output_path="tests/data/norman2019_subset_singles.h5ad.gz",
     n_control=500,
-    n_top_genes=1000,
+    n_top_genes=500,
 ):
     """
     Prepare a small test dataset from Norman2019 data with only single perturbations
@@ -39,11 +39,13 @@ def prepare_norman2019_singles_test_data(
 
     # Filter to selected perturbations and gemgroup 1
     singles = (
-        adata[adata.obs["perturbation"].isin(perts) & (adata.obs["gemgroup"] == 1)]
+        adata[
+            adata.obs["perturbation"].isin(perts) & (adata.obs["gemgroup"].isin([1, 2]))
+        ]
         .to_memory()
         .copy()
     )
-    singles.obs = singles.obs[["perturbation", "nperts"]].copy()
+    singles.obs = singles.obs[["perturbation", "nperts", "gemgroup"]].copy()
 
     print(f"Original singles data shape: {singles.shape}")
     print(f"Perturbations: {singles.obs['perturbation'].value_counts()}")
@@ -96,7 +98,7 @@ def prepare_norman2019_doubles_test_data(
     ),
     output_path="tests/data/norman2019_subset_doubles.h5ad.gz",
     n_control=500,
-    n_top_genes=1000,
+    n_top_genes=500,
 ):
     """
     Prepare a small test dataset from Norman2019 data with single and dual perturbations
@@ -114,11 +116,13 @@ def prepare_norman2019_doubles_test_data(
 
     # Filter to selected perturbations and gemgroup 1
     doubles = (
-        adata[adata.obs["perturbation"].isin(perts) & (adata.obs["gemgroup"] == 1)]
+        adata[
+            adata.obs["perturbation"].isin(perts) & (adata.obs["gemgroup"].isin([1, 2]))
+        ]
         .to_memory()
         .copy()
     )
-    doubles.obs = doubles.obs[["perturbation", "nperts"]].copy()
+    doubles.obs = doubles.obs[["perturbation", "nperts", "gemgroup"]].copy()
 
     print(f"Original doubles data shape: {doubles.shape}")
     print(f"Perturbations: {doubles.obs['perturbation'].value_counts()}")
