@@ -244,51 +244,89 @@ def cluster_df(df, cluster_rows=True, cluster_cols=True, method='average', metri
         df = df.iloc[row_order]
     return df
 
-def cells_not_normalized(adata):
+def cells_not_normalized(adata, threshold=0.01):
     sums = np.array(adata.X.sum(axis=1)).flatten()
     dev = np.std(sums)
-    return True if dev > 1 else False
+    cv = dev / np.mean(sums)
+    return cv > threshold
 
 
-def _get_target_change_single_perturbation_indexed(adata, gene, perturbed_inds, ref_inds):
+def _get_target_change_single_perturbation_indexed(
+    adata,
+    gene: str,
+    perturbed_inds,
+    ref_inds,
+    pseudocount: float = 1.0,
+    use_var_pseudocount: bool = False,
+) -> Dict[str, Union[float, np.ndarray]]:
     """
-    Compute the "percent change" for each cell against a reference.
-    
-    Parameters:
-    - adata: anndata.AnnData object containing expression data. assumed to be transformed as desired
-    - perturbed_bool: boolean array indicating which cells are perturbed
-    - gene: gene name
-    - ref_mean: reference mean expression value
-    
-    Returns:
-    - A list of "percent knocked down" for each cell.
-    """
+    Compute expression change metrics for a target gene in perturbed cells
+    relative to reference cells.
 
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix.
+    gene : str
+        Target gene name.
+    perturbed_inds : index-like
+        Index of perturbed cells.
+    ref_inds : index-like
+        Index of reference cells.
+    pseudocount : float, optional (default: 1.0)
+        Pseudocount for log2 fold-change calculation.
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - target_gene
+        - target_gene_expression
+        - target_reference_mean
+        - target_reference_std
+        - target_pct_change
+        - target_zscore
+        - target_log2fc
+        - target_percentile
+    """
     if gene not in adata.var_names:
-        out = {}
-        out['target_gene'] = np.nan
-        out['target_gene_expression'] = np.nan
-        out['target_reference_mean'] = np.nan
-        out['target_reference_std'] = np.nan
-        out['target_pct_change'] = np.nan
-        out['target_zscore'] = np.nan
-        out['target_log2fc'] = np.nan
-        return out
+        return {
+            'target_gene': np.nan,
+            'target_gene_expression': np.nan,
+            'target_reference_mean': np.nan,
+            'target_reference_std': np.nan,
+            'target_pct_change': np.nan,
+            'target_zscore': np.nan,
+            'target_log2fc': np.nan,
+            'target_percentile': np.nan
+        }
 
-    # target_gene_expression = adata[:, gene].X.flatten()
+    if use_var_pseudocount:
+        pseudocount = adata.var.loc[gene, 'pseudocount'] if 'pseudocount' in adata.var.columns else pseudocount
+
     ref_gex = adata[ref_inds, gene].X.flatten()
     reference_target_mean = float(np.mean(ref_gex))
     reference_target_std = float(np.std(ref_gex))
-
     ptrb_gex = adata[perturbed_inds, gene].X.flatten()
+    
     out = {}
     out['target_gene'] = gene
     out['target_gene_expression'] = ptrb_gex
     out['target_reference_mean'] = reference_target_mean
     out['target_reference_std'] = reference_target_std
-    out['target_pct_change'] = ((ptrb_gex - reference_target_mean) / reference_target_mean) * 100
-    out['target_zscore'] = (ptrb_gex - reference_target_mean) / reference_target_std
-    out['target_log2fc'] = np.log2((ptrb_gex + 1) / (reference_target_mean+1))
+    out['target_pct_change'] = (((ptrb_gex + pseudocount) - (reference_target_mean + pseudocount)) / (reference_target_mean + pseudocount)) * 100
+
+    out['target_zscore'] = (
+        np.full(ptrb_gex.shape, np.nan) if reference_target_std == 0
+        else (ptrb_gex - reference_target_mean) / reference_target_std
+    )
+
+    out['target_log2fc'] = (
+        np.log2((ptrb_gex + pseudocount) / (reference_target_mean + pseudocount))
+    )
+
+    ref_sorted = np.sort(ref_gex)
+    out['target_percentile'] = 100 * np.searchsorted(ref_sorted, ptrb_gex, side='right') / len(ref_sorted)
 
     return out
 
@@ -308,46 +346,50 @@ def calculate_target_change(
     quiet: bool = False,
     inplace: bool = True,
     collapse_into_obs: bool = True,
+    pseudocount: float = 1.0,
+    use_var_pseudocount: bool = False,
+    target_sum = None,
     **kwargs,
 ) -> Optional[AnnData]:
     """
-    Calculate the "percent change" for each cell against a reference.
+    Calculate per-cell target gene expression change metrics for each perturbation
+    relative to a reference population (typically control or unperturbed cells).
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     adata : AnnData
-        Annotated data matrix.
+        Annotated data matrix with expression data in `.X`.
     perturbation_column : str
-        Column in `adata.obs` indicating the perturbations.
+        Column in `adata.obs` indicating perturbation identities.
     reference_value : str, optional
-        Value in `perturbation_column` to use as the reference.
+        Label in `perturbation_column` indicating the control group.
     perturbation_gene_map : dict, optional
-        Mapping from perturbation identifiers to gene names.
+        Mapping from perturbation IDs to target gene names.
     groupby : str or list of str, optional
-        Columns in `adata.obs` to group by for calculations.
-    check_norm : bool, optional
-        Whether to check and normalize data to counts per cell if necessary.
-    quiet : bool, optional
-        Suppress output messages.
-    inplace : bool, optional
-        Whether to modify the `adata` object in place.
-    collapse_into_obs : bool, optional
-        Whether to collapse the computed metrics into `adata.obs`.
+        One or more `adata.obs` columns to group cells for metric computation.
+    check_norm : bool, optional (default: True)
+        Whether to normalize `.X` to total counts per cell if not already.
+    quiet : bool, optional (default: False)
+        Suppress log output.
+    inplace : bool, optional (default: True)
+        Modify the input AnnData in place.
+    collapse_into_obs : bool, optional (default: True)
+        Collapse single-perturbation metrics from `.obsm` into `.obs`.
+    pseudocount : float, optional (default: 1.0)
+        Pseudocount added for log2 fold change calculation.
 
-    Returns:
-    --------
-    adata : AnnData, optional
-        Updated AnnData object with calculated metrics if `inplace=False`.
+    Returns
+    -------
+    AnnData or None
+        If `inplace=False`, returns a modified copy of `adata`; otherwise modifies `adata` in-place.
 
-    Example:
-    --------
-    >>> calculate_target_change(adata, 'perturbation', reference_value='control', quiet=False, inplace=True)
-
-    Notes:
-    ------
-    This function calculates the percent change in gene expression for each cell 
-    against a reference value (e.g., control cells). The results can be stored 
-    in the `adata` object either in place or returned as a new object.
+    Notes
+    -----
+    For each gene and perturbation, the following metrics are computed:
+    - Percent change from reference
+    - Z-score (set to NaN if reference std is 0)
+    - Log2 fold-change (with pseudocount)
+    - Percentile of each perturbed cell in the reference distribution
     """
 
     duplicated_genes = adata.var.index.duplicated()
@@ -367,7 +409,9 @@ def calculate_target_change(
         if cells_not_normalized(final_adata):
             if not quiet: print('\t\tData is not normalized to counts per cell. Normalizing...')
             final_adata.layers['temp_counts'] = final_adata.X.copy()
-            sc.pp.normalize_total(final_adata)
+            
+            sc.pp.normalize_total(final_adata, target_sum=target_sum)
+            if not quiet: print(f'\t\tData normalized to counts per cell with target_sum: {target_sum}. Mean total counts: ')
         else:
             if not quiet: print('\t\tData already normalized to counts per cell.')
 
@@ -388,26 +432,42 @@ def calculate_target_change(
     elif sum(check) != len(check):
         if not quiet: print(f"\tMissing {len(check) - sum(check)} perturbations not found in adata.var_names.")
 
-    metrics = ['target_pct_change', 'target_log2fc', 'target_zscore', 'target_gene_expression', 'target_reference_mean', 'target_reference_std'] 
-    for m in metrics:
-        final_adata.obsm[m] = pd.DataFrame(index=final_adata.obs.index, columns=pm.columns).fillna(0)
-    final_adata.obsm['target_gene'] = pd.DataFrame(index=final_adata.obs.index, columns=pm.columns)
-    metrics += ['target_gene']
+    if not quiet: print('\tInitializing metric containers...')
+
+    metrics = {
+        'target_pct_change': np.float32,
+        'target_log2fc': np.float32,
+        'target_zscore': np.float32,
+        'target_percentile': np.float32,
+        'target_gene_expression': np.float32,
+        'target_reference_mean': np.float32,
+        'target_reference_std': np.float32,
+        'target_gene': object,
+    }
+
+    for m, dtype in metrics.items():
+        final_adata.obsm[m] = pd.DataFrame(
+            np.full((final_adata.shape[0], pm.shape[1]), np.nan, dtype=dtype),
+            index=final_adata.obs.index,
+            columns=pm.columns
+        )
 
     if groupby is not None:
         groups = final_adata.obs.groupby(groupby).groups
     else:
         groups = {None: final_adata.obs.index}
-    
+
     if not quiet: print('\tComputing target change for each cell...')
 
     for group, group_idx in tqdm(groups.items(), desc='Groups', disable=quiet):
-        ref_bool = (pm.loc[group_idx].sum(axis=1) == 0).values # get the non perturbed cells for this grouping
+        ref_bool = (pm.loc[group_idx].sum(axis=1) == 0).values
         ref_idx = group_idx[ref_bool]
         for perturbation in tqdm(pm.columns, desc='Perturbations', leave=True, total=pm.shape[1], disable=quiet):
             target = perturbation_gene_map[perturbation] if perturbation_gene_map is not None else perturbation
-            out = _get_target_change_single_perturbation_indexed(final_adata, target, group_idx, ref_idx)
-            for m in metrics:
+            out = _get_target_change_single_perturbation_indexed(
+                final_adata, target, group_idx, ref_idx, pseudocount=pseudocount, use_var_pseudocount=use_var_pseudocount
+            )
+            for m in metrics.keys():
                 final_adata.obsm[m].loc[group_idx, perturbation] = out[m]
 
     if not quiet: print('Target change calculation done. Storing in AnnData...')
